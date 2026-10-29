@@ -111,6 +111,18 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ## Phase 2: Make it feel alive
 
+### Keep traffic state when toggling namespaces
+
+Problem: toggling a namespace changes the campus layout, which bumps `world.version`, and `TrafficSystem.reset()` then throws away every parcel, belt, tube and cached route. The SSE stream keeps running, but the scene visibly starts from scratch. Goal: only touch what the toggle actually affects.
+
+- Room local traffic: make conveyors and in-room path segments children of their `NamespaceRoom` (room local coordinates), so moving a room moves its belts and parcels with it and nothing has to be rebuilt.
+- Smooth relayout: tween rooms from their old to their new grid slot instead of teleporting, new rooms rise out of the floor, removed rooms sink away.
+- Targeted invalidation: on toggle, drop only routes and tubes that touch the toggled namespace (and tubes whose endpoints moved), reuse `TrafficSystem.invalidate()` instead of `reset()`.
+- Tubes follow their endpoints: rebuild a tube's curve only when one of its two anchors moved, and re-path in-flight parcels by keeping their progress `u` on the new curve instead of killing them.
+- Ghost portals: when a namespace is hidden, migrate its in-flight parcels to the new ghost portal route instead of dropping them; when it is shown again, the portal fades out and its routes switch to the room.
+- Short flow history: keep a small per-edge ring buffer (last ~30s of aggregated counts) so a newly enabled namespace immediately gets its belts and a few parcels, instead of looking idle until new flows arrive.
+- Performance: no full scene traversal on toggle, work is proportional to the affected namespaces and edges; batch layout changes to one per animation frame; keep geometry and materials shared so a toggle allocates as little as possible.
+
 - Animated rollers / belt texture scroll, parcels bunching at the hatch, small bounce on arrival.
 - Route flows to Services through the gate using Hubble `destination_service`.
 - Belt routing that avoids stations (orthogonal belts with corner pieces, multiple belt heights).
