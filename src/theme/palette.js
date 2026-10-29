@@ -1,0 +1,50 @@
+export const palette = {
+  background: 0x34275f,
+  floor: 0xb69ae4,
+  wallLight: 0xc7b0f0,
+  wallDark: 0x6b5bb0,
+  trim: 0xece3fb,
+  metal: 0xb9a8e4,
+  dark: 0x3b3163,
+  hole: 0x140e28,
+  padInner: 0xa587dc,
+  roller: 0xee6b5f,
+  hazardYellow: '#f4b63f',
+  hazardDark: '#2e2648',
+  lamp: 0xfff0d8,
+  tube: 0xf1eaff,
+  text: '#f1eaff',
+  textDark: '#4b3d8f',
+  textOnWall: '#7a66c4',
+  parcels: {
+    TCP: 0xc6e86e,
+    UDP: 0xaedaf6,
+    http: 0xf6bbe6,
+    dns: 0x9fc9ff,
+    ICMPv4: 0xffd5a0,
+    ICMPv6: 0xffd5a0,
+    other: 0xe9e1f7
+  },
+  dropped: 0xff4d61,
+  status: {
+    Running: 0xf4eeff,
+    NotReady: 0xf7d48c,
+    Pending: 0xf7d48c,
+    Succeeded: 0xb7e4c6,
+    Failed: 0xff7f7f,
+    Terminating: 0x9d93bd,
+    Unknown: 0x9d93bd
+  },
+  process: {
+    exec: 0xc6e86e,
+    exit: 0x9d93bd,
+    kprobe: 0xf6bbe6,
+    tracepoint: 0xf6bbe6,
+    other: 0xaedaf6
+  },
+  world: 0x86d9c6,
+  ring: 0xf6bbe6,
+  led: 0xc6e86e
+}
+
+export const hex = color => `#${color.toString(16).padStart(6, '0')}`
