@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { block, textPlane, disposeTree } from './primitives.js'
+import { block, textPlane, textSprite, disposeTree } from './primitives.js'
+import { batchStatic } from './batchStatic.js'
 import { PodStation } from './PodStation.js'
 import { WorkloadPad } from './WorkloadPad.js'
 import { ServiceGate } from './ServiceGate.js'
@@ -22,6 +23,10 @@ const LABEL_MIN = 0.6
 const FOOTPRINT = 1.5
 const AISLE = CELL / 2
 const GATE_LANE = 2
+const SUMMARY_CELL = 1.7
+const SUMMARY_POD = new THREE.BoxGeometry(1.2, 1, 1.2)
+const summaryDummy = new THREE.Object3D()
+const summaryTint = new THREE.Color()
 
 const scratchBox = new THREE.Box3()
 const scratchPoint = new THREE.Vector3()
@@ -56,10 +61,15 @@ export class NamespaceRoom extends THREE.Group {
     this.depth = plan.depth
     this.hatchX = -this.width / 2 + WALL_T + 4.5
 
+    this.radius = Math.hypot(this.width, this.depth) / 2
+    this.far = false
+    this.detail = new THREE.Group()
+    this.add(this.detail)
     this.buildShell()
     this.buildContent(plan)
+    this.buildSummary()
     this.belts = new BeltNetwork(this)
-    this.add(this.belts)
+    this.detail.add(this.belts)
     this.userData.pick = { type: 'namespace', id: this.namespace, ns: this.namespace }
   }
 
@@ -142,6 +152,7 @@ export class NamespaceRoom extends THREE.Group {
     this.leftWall = new THREE.Group()
     this.leftWall.add(left, sideLabel)
     this.wallLabels = [[this.backWall, [number, title, trafficLabel]], [this.leftWall, [sideLabel]]]
+    this.smallLabels = [trafficLabel, sideLabel]
     this.backBox = new THREE.Box3(new THREE.Vector3(-W / 2, 0, -D / 2), new THREE.Vector3(W / 2, WALL_H, -D / 2 + WALL_T))
     this.leftBox = new THREE.Box3(new THREE.Vector3(-W / 2, 0, -D / 2), new THREE.Vector3(-W / 2 + WALL_T, WALL_H + 1.5, D / 2))
 
@@ -149,18 +160,20 @@ export class NamespaceRoom extends THREE.Group {
   }
 
   buildContent({ items }) {
+    const statics = []
     for (const item of items) {
       const pad = new WorkloadPad(item.workload, item.w, item.d, this.namespace)
       pad.position.set(item.cx, 0, item.cz)
       this.obstacles.push({ x: item.cx, z: item.cz + item.d / 2 - 0.55, hx: Math.min(item.w - 0.6, 4.4) / 2 + 0.3, hz: 0.5 })
-      this.add(pad)
+      this.detail.add(pad)
+      statics.push(pad)
       item.pods.forEach((pod, i) => {
         const col = i % item.cols
         const row = Math.floor(i / item.cols)
         const station = new PodStation({ ...pod, namespace: this.namespace }, shortName(pod, item.workload))
         station.place(item.cx - item.w / 2 + 0.5 + CELL * (col + 0.5), 0.2, item.cz - item.d / 2 + 0.4 + CELL * (row + 0.5))
         this.obstacles.push({ x: station.home.x, z: station.home.z, hx: FOOTPRINT, hz: FOOTPRINT })
-        this.add(station)
+        this.detail.add(station)
         this.stations.set(pod.name, station)
       })
     }
@@ -171,8 +184,43 @@ export class NamespaceRoom extends THREE.Group {
       gate.position.set((i - (services.length - 1) / 2) * GATE_SPACING, 0, this.gateZ)
       this.obstacles.push({ x: gate.position.x, z: gate.position.z, hx: 2.5, hz: 0.8 })
       this.gates.set(service.name, gate)
-      this.add(gate)
+      this.detail.add(gate)
+      statics.push(gate)
     })
+    batchStatic(this.detail, statics)
+  }
+
+  buildSummary() {
+    const pods = this.data.pods
+    this.summary = new THREE.Group()
+    this.summary.visible = false
+    const sign = textSprite(this.namespace, 3.2, { color: palette.text, background: '#2a2150', weight: 600 })
+    sign.position.y = WALL_H + 4
+    this.summary.add(sign)
+    if (pods.length) {
+      const cols = Math.ceil(Math.sqrt(pods.length))
+      const mesh = new THREE.InstancedMesh(SUMMARY_POD, surface(0xffffff), pods.length)
+      pods.forEach((pod, i) => {
+        const height = 1 + Math.min(pod.containers.length, 3) * 0.5
+        summaryDummy.position.set(((i % cols) - (cols - 1) / 2) * SUMMARY_CELL + 1, height / 2, (Math.floor(i / cols) - (cols - 1) / 2) * SUMMARY_CELL + 1)
+        summaryDummy.scale.set(1, height, 1)
+        summaryDummy.updateMatrix()
+        mesh.setMatrixAt(i, summaryDummy.matrix)
+        const status = pod.phase === 'Running' && !pod.ready ? 'NotReady' : pod.phase
+        mesh.setColorAt(i, summaryTint.set(palette.status[status] ?? palette.status.Unknown))
+      })
+      mesh.castShadow = true
+      this.summary.add(mesh)
+    }
+    this.add(this.summary)
+  }
+
+  setFar(far) {
+    if (far === this.far) return
+    this.far = far
+    this.detail.visible = !far
+    this.summary.visible = far
+    this.smallLabels.forEach(label => (label.visible = !far))
   }
 
   portLocal(key) {
@@ -218,12 +266,12 @@ export class NamespaceRoom extends THREE.Group {
     }
     for (const [name, station] of previous.stations) {
       if (this.stations.has(name)) continue
-      this.add(station)
+      this.detail.add(station)
       station.exit()
       this.leaving.push(station)
     }
     for (const station of previous.leaving) {
-      this.add(station)
+      this.detail.add(station)
       this.leaving.push(station)
     }
     this.cutBack = previous.cutBack
@@ -253,8 +301,10 @@ export class NamespaceRoom extends THREE.Group {
   }
 
   tick(dt) {
-    for (const station of this.stations.values()) station.tick(dt)
-    for (const gate of this.gates.values()) gate.tick(dt)
+    if (!this.far) {
+      for (const station of this.stations.values()) station.tick(dt)
+      for (const gate of this.gates.values()) gate.tick(dt)
+    }
     for (let i = this.leaving.length - 1; i >= 0; i--) {
       const station = this.leaving[i]
       station.tick(dt)
@@ -273,7 +323,7 @@ export class NamespaceRoom extends THREE.Group {
     const next = wall.scale.y + (target - wall.scale.y) * Math.min(1, dt * WALL_SPEED)
     wall.scale.y = Math.abs(next - target) < 0.005 ? target : next
     for (const [owner, labels] of this.wallLabels) {
-      if (owner === wall) labels.forEach(label => (label.visible = wall.scale.y > LABEL_MIN))
+      if (owner === wall) labels.forEach(label => (label.visible = wall.scale.y > LABEL_MIN && !(this.far && this.smallLabels.includes(label))))
     }
   }
 }

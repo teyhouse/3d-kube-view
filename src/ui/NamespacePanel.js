@@ -1,3 +1,5 @@
+import { isTyping } from '../core/isTyping.js'
+
 const TEMPLATE = `
   <header>
     <h4>Namespaces</h4>
@@ -10,8 +12,15 @@ const TEMPLATE = `
       <button data-preset="populated">With pods</button>
       <button data-preset="none">None</button>
     </div>
+    <label class="ns-districts"><input type="checkbox" /> Group into districts</label>
     <input class="ns-search" type="search" placeholder="Filter namespaces" spellcheck="false" />
     <ul class="ns-list"></ul>
+    <h4 class="ns-views-title">Saved views</h4>
+    <ul class="ns-views"></ul>
+    <form class="ns-save">
+      <input type="text" placeholder="View name" maxlength="40" spellcheck="false" />
+      <button type="submit">Save</button>
+    </form>
   </div>
 `
 
@@ -27,12 +36,28 @@ export class NamespacePanel {
     this.onToggle = () => {}
     this.onPreset = () => {}
     this.onFocus = () => {}
+    this.onDistricts = () => {}
+    this.onSaveView = () => {}
+    this.onApplyView = () => {}
+    this.onDeleteView = () => {}
+    this.views = root.querySelector('.ns-views')
+    this.districts = root.querySelector('.ns-districts input')
+    this.districts.addEventListener('change', () => this.onDistricts(this.districts.checked))
+    const form = root.querySelector('.ns-save')
+    form.addEventListener('submit', e => {
+      e.preventDefault()
+      const input = form.querySelector('input')
+      const name = input.value.trim()
+      if (!name) return
+      this.onSaveView(name)
+      input.value = ''
+    })
 
     root.querySelector('.ns-collapse').addEventListener('click', () => this.collapse())
     root.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => this.onPreset(b.dataset.preset)))
     this.search.addEventListener('input', () => this.filter())
     addEventListener('keydown', e => {
-      if (e.code === 'KeyN' && !(e.target instanceof HTMLInputElement)) this.collapse()
+      if (e.code === 'KeyN' && !isTyping(e)) this.collapse()
     })
   }
 
@@ -76,6 +101,25 @@ export class NamespacePanel {
       this.onFocus(name)
     })
     return { el, checkbox, index: el.querySelector('.ns-index'), pods: el.querySelector('.ns-pods') }
+  }
+
+  setViews(views) {
+    this.views.replaceChildren(
+      ...views.map(view => {
+        const row = document.createElement('li')
+        const open = document.createElement('button')
+        open.className = 'ns-view-open'
+        open.textContent = view.name
+        open.addEventListener('click', () => this.onApplyView(view.name))
+        const remove = document.createElement('button')
+        remove.className = 'ns-view-remove'
+        remove.title = 'Delete view'
+        remove.textContent = '×'
+        remove.addEventListener('click', () => this.onDeleteView(view.name))
+        row.append(open, remove)
+        return row
+      })
+    )
   }
 
   setActivity(active) {

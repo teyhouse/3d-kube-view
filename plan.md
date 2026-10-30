@@ -35,9 +35,9 @@ Inspired by isometric "factory diorama" scenes: solid, rounded primitives, a sma
 
 Zoom is the core interaction. The plan is a semantic zoom with three levels:
 
-1. **Cluster** (far): rooms are compact blocks with large wall labels, traffic shows as tube activity between rooms and portals. Later: aggregate parcels per edge, hide belts and pod labels.
+1. **Cluster** (far): rooms show one block per pod and a name tag, traffic shows as aggregated parcels in the tubes between rooms and portals.
 2. **Namespace** (mid, the PoC focus): workloads, pods, services, belts and parcels are all visible.
-3. **Pod** (close): station details, containers as stacked modules, live Tetragon process list, per pod connection list in the side panel.
+3. **Pod** (selected): station details, live Tetragon process list and connection list in the side panel.
 
 Navigation: click to select, double click or number keys to fly into a room or station, `Esc` to fly back to the overview, bottom pill to step through namespaces.
 
@@ -96,17 +96,14 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ## Status (TL;DR)
 
-**Works today:** all namespaces as a live campus, real Hubble flows as parcels on belts and tubes, Tetragon events as lamp flashes and labels, namespace toggling that keeps traffic state, gates that carry service traffic, pod lifecycle animations, wall cutaway, hover and selection rings.
+**Works today:** all namespaces as a live campus grouped into districts, real Hubble flows as parcels on belts and tubes, Tetragon events as lamp flashes and labels, two zoom levels with aggregated traffic at distance, toggling that keeps traffic state and refilters the streams, saved views, node yard, pod details with live connections and processes.
 
 **Missing / rough:**
 
-- No semantic zoom yet: full detail is rendered at every distance.
-- Static machine parts are still separate meshes (~1000+ draw calls with all namespaces). Real GPU frame rates are unmeasured, the headless renderer is software only.
+- Machines and conveyors are still individual meshes: a large room in close-up costs a few hundred draw calls (shadow pass included).
 - Tubes arc over rooms, but can still pass through tall walls at long range.
-- No grouping of namespaces (labels, Flux kustomization), order is alphabetical.
-- Server streams everything to the browser; selection is client side only.
-- No policies, no L7 details, no alerts, no pause/replay.
-- Multi node untested (streams are per agent pod, but there is no node layer).
+- Multi node only tested with mock data, the real cluster has one node.
+- No policies, no L7 details, no alerts, no pause/replay (phase 4).
 
 ## Phase 2: Make it feel alive (done)
 
@@ -123,14 +120,18 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 - [x] Pod lifecycle: machines rise through the floor on create, sink on delete, shake on restart, glide to a new slot.
 - [x] Stream cleanup: `kubectl exec` without a TTY leaves the remote process running, so remote commands now run under a stdin watchdog (`execStream`) that ends them when kubectl goes away, and the server stops its children on exit.
 
-## Phase 3: Scale and structure
+## Phase 3: Scale and structure (done)
 
-- Group rooms into districts by label or Flux kustomization, district labels on the ground.
-- Semantic zoom/LOD: aggregate traffic at cluster level (one fat parcel per edge per second), detail only for rooms near the camera.
-- `InstancedMesh` for repeated machine parts (parcels and rollers are done), pooled labels, frustum based throttling.
-- Server side selection: the client sends its visible namespaces, the hub only forwards relevant flows and restarts Hubble with matching filters.
-- Saved views (named selections + camera bookmarks) in addition to the presets.
-- Nodes as a lower layer ("basement") showing pod placement for multi node clusters.
+- [x] Districts: rooms group by the top level directory of the Flux Kustomization `spec.path`, found through workload and HelmRelease labels. Without Flux: `system` for `kube-*` and `cilium*`, otherwise `other`. Ground plates carry the name, toggle in the namespace panel.
+- [x] Semantic zoom by projected room size with hysteresis. Far rooms hide machines, belts and small labels, and show one instanced block per pod plus a name tag.
+- [x] Far traffic aggregation: replies are skipped, one fat parcel per route per second scaled by flow count, parcels on hidden belts are not drawn, parcels cast no shadow when every room is far.
+- [x] Instancing: gate and pad parts are batched per room with per instance picking, parcels and rollers were already instanced. Parcels outside the camera frustum are skipped.
+- [x] Server side selection: each client reports its hidden namespaces, the hub filters per client and restarts Hubble and Tetragon with the union of what is visible, debounced, with a short overlap and `--last 200` replay. Client input only ever subtracts from topology names, so it never reaches kubectl arguments. Trade off: activity dots of hidden namespaces only light up for traffic that touches a visible one.
+- [x] Saved views: name, selection, district mode and camera in localStorage.
+- [x] Node yard: one plate per node in front of the campus with pods colored by namespace, shown by default on multi node clusters, `B` toggles it.
+- [x] Pod details: live connections from the 30s flow history and recent processes.
+
+Not done on purpose: machines stay individual meshes because lifecycle animations move them, and far rooms already hide them. Revisit if close-ups get slow.
 
 ## Phase 4: Insight features
 
@@ -142,7 +143,6 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ## Open Questions
 
-- Should rooms be grouped by team/app (labels) or by Flux kustomization?
 - How to visualize ingress (envoy-gateway, cloudflared tunnel) as a dedicated "loading dock" entry point?
 - Reply traffic: show it, merge it, or make it a toggle?
 - Should the app run in cluster later (ServiceAccount + Hubble Relay gRPC) instead of using `kubectl exec`?
@@ -170,4 +170,4 @@ npm run screenshot -- http://127.0.0.1:8080/
 
 Screenshots of the overview and every room land in `screenshots/`.
 
-Controls: `WASD`/arrows pan, `Q`/`E` rotate, `R`/`F` or mouse wheel zoom, `Shift` faster, left drag orbit, right drag pan, click select, double click focus, `1`-`9` jump to the n-th visible namespace, `N` toggle namespace panel, `Esc` overview.
+Controls: `WASD`/arrows pan, `Q`/`E` rotate, `R`/`F` or mouse wheel zoom, `Shift` faster, left drag orbit, right drag pan, click select, double click focus, `1`-`9` jump to the n-th visible namespace, `N` toggle namespace panel, `B` toggle node yard, `Esc` overview.

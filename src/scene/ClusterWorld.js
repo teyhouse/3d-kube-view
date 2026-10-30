@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { NamespaceRoom } from '../objects/NamespaceRoom.js'
 import { Portal } from '../objects/Portal.js'
+import { DistrictPlate } from '../objects/DistrictPlate.js'
+import { NodeYard } from './NodeYard.js'
 import { disposeTree } from '../objects/primitives.js'
 
 const ROOM_GAP = 14
@@ -10,6 +12,13 @@ const MOVE_TIME = 0.9
 const EXIT_TIME = 0.6
 const ENTER_DEPTH = -22
 const CUTAWAY_INTERVAL = 0.2
+const DISTRICT_GAP = 22
+const DISTRICT_SIDE = 7
+const DISTRICT_FRONT = 13
+const LOD_NEAR = 0.3
+const LOD_FAR = 0.24
+const YARD_GAP = 26
+const YARD_Y = -3
 
 const ease = t => t * t * (3 - 2 * t)
 
@@ -28,14 +37,23 @@ export class ClusterWorld {
     this.moveK = 1
     this.ray = new THREE.Ray()
     this.cutawayTime = CUTAWAY_INTERVAL
+    this.districts = true
+    this.plates = new Map()
+    this.anyNear = true
+    this.yard = new NodeYard()
+    this.yard.visible = false
+    this.yardWanted = null
+    this.frontZ = 0
+    this.root.add(this.yard)
   }
 
-  setTopology(entries, { animate = true } = {}) {
+  setTopology(entries, { animate = true, districts = true } = {}) {
     const next = new Map()
     const changed = []
     const entered = []
     const left = []
-    let layoutChanged = entries.length !== this.order.length || entries.some((e, i) => this.order[i]?.namespace !== e.data.name)
+    let layoutChanged = districts !== this.districts || entries.length !== this.order.length || entries.some((e, i) => this.order[i]?.namespace !== e.data.name)
+    this.districts = districts
 
     for (const { data, index } of entries) {
       const signature = `${index}:${JSON.stringify(data)}`
@@ -47,7 +65,8 @@ export class ClusterWorld {
       const room = new NamespaceRoom(data, index)
       room.signature = signature
       if (current) {
-        if (current.width !== room.width || current.depth !== room.depth) layoutChanged = true
+        if (current.width !== room.width || current.depth !== room.depth || current.data.district !== data.district) layoutChanged = true
+        room.setFar(current.far)
         room.position.copy(current.position)
         room.scale.copy(current.scale)
         room.home.copy(current.home)
@@ -83,24 +102,51 @@ export class ClusterWorld {
   }
 
   layout(animate) {
-    const cols = Math.max(1, Math.ceil(Math.sqrt(this.order.length)))
-    const rows = []
-    for (let i = 0; i < this.order.length; i += cols) rows.push(this.order.slice(i, i + cols))
-
+    const groups = this.groupRooms()
+    const cols = Math.max(1, Math.ceil(Math.sqrt(groups.length)))
     let z = 0
-    for (const row of rows) {
-      const depth = Math.max(...row.map(r => r.depth))
-      const width = row.reduce((sum, r) => sum + r.width, 0) + ROOM_GAP * (row.length - 1)
-      let x = -width / 2
-      for (const room of row) {
-        room.home.set(x + room.width / 2, 0, z + room.depth / 2)
-        x += room.width + ROOM_GAP
+    let minZ = 0
+    let maxZ = 0
+    const placed = []
+    for (let i = 0; i < groups.length; i += cols) {
+      const row = groups.slice(i, i + cols)
+      const rowDepth = Math.max(...row.map(g => g.depth))
+      const rowWidth = row.reduce((sum, g) => sum + g.width, 0) + DISTRICT_GAP * (row.length - 1)
+      let x = -rowWidth / 2
+      for (const group of row) {
+        placed.push({ group, x: x + group.width / 2, z: z + group.depth / 2 })
+        x += group.width + DISTRICT_GAP
       }
-      z += depth + ROOM_GAP
+      z += rowDepth + DISTRICT_GAP
     }
-    const offset = Math.max(0, z - ROOM_GAP) / 2
-    for (const room of this.order) room.home.z -= offset
-    this.backZ = -Math.max(offset, 11) - 30
+    const offset = Math.max(0, z - DISTRICT_GAP) / 2
+
+    const seen = new Set()
+    for (const { group, x, z: gz } of placed) {
+      const cz = gz - offset
+      minZ = Math.min(minZ, cz - group.depth / 2)
+      maxZ = Math.max(maxZ, cz + group.depth / 2)
+      for (const room of group.rooms) room.home.set(x + room.relX, 0, cz + room.relZ)
+      if (!group.name) continue
+      seen.add(group.name)
+      let plate = this.plates.get(group.name)
+      if (!plate) {
+        plate = new DistrictPlate(group.name)
+        this.plates.set(group.name, plate)
+        this.root.add(plate)
+      }
+      plate.target(x, cz, group.width, group.depth, DISTRICT_FRONT / 2)
+    }
+    for (const [name, plate] of this.plates) {
+      if (seen.has(name)) continue
+      this.plates.delete(name)
+      this.exit(plate, animate)
+    }
+    if (!animate) this.plates.forEach(plate => plate.apply(1))
+
+    this.backZ = Math.min(minZ, -11) - 30
+    this.frontZ = maxZ
+    this.placeYard()
 
     for (const room of this.order) {
       if (room.fresh) {
@@ -123,6 +169,56 @@ export class ClusterWorld {
 
     this.moveT = animate ? 0 : 1
     this.moveK = animate ? 0 : 1
+  }
+
+  groupRooms() {
+    const byName = new Map()
+    for (const room of this.order) {
+      const name = this.districts ? room.data.district ?? 'other' : null
+      if (!byName.has(name)) byName.set(name, [])
+      byName.get(name).push(room)
+    }
+    const groups = [...byName].map(([name, rooms]) => this.layoutGroup(name, rooms))
+    return groups.sort((a, b) => b.rooms.length - a.rooms.length || String(a.name).localeCompare(String(b.name)))
+  }
+
+  layoutGroup(name, rooms) {
+    const cols = Math.max(1, Math.ceil(Math.sqrt(rooms.length)))
+    const rows = []
+    for (let i = 0; i < rooms.length; i += cols) rows.push(rooms.slice(i, i + cols))
+    const widths = rows.map(row => row.reduce((sum, r) => sum + r.width, 0) + ROOM_GAP * (row.length - 1))
+    const contentW = Math.max(...widths)
+    const side = name ? DISTRICT_SIDE : 0
+    const front = name ? DISTRICT_FRONT : 0
+    let z = 0
+    rows.forEach((row, r) => {
+      const depth = Math.max(...row.map(room => room.depth))
+      let x = -widths[r] / 2
+      for (const room of row) {
+        room.relX = x + room.width / 2
+        room.relZ = z + room.depth / 2
+        x += room.width + ROOM_GAP
+      }
+      z += depth + ROOM_GAP
+    })
+    const contentD = Math.max(0, z - ROOM_GAP)
+    const depth = contentD + side + front
+    for (const room of rooms) room.relZ += side - depth / 2
+    return { name, rooms, width: contentW + side * 2, depth }
+  }
+
+  placeYard() {
+    this.yard.position.set(0, YARD_Y, this.frontZ + YARD_GAP)
+  }
+
+  updateNodes(topology) {
+    this.yard.update(topology)
+    this.yard.visible = this.yardWanted ?? topology.nodes.length > 1
+  }
+
+  toggleNodes() {
+    this.yardWanted = !this.yard.visible
+    this.yard.visible = this.yardWanted
   }
 
   exit(object, animate = true) {
@@ -188,6 +284,10 @@ export class ClusterWorld {
     const box = new THREE.Box3()
     for (const room of this.order) box.union(room.bounds())
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 10, 30))
+    if (this.yard.visible) {
+      box.expandByPoint(new THREE.Vector3(-this.yard.width / 2, YARD_Y, this.frontZ + YARD_GAP + this.yard.depth))
+      box.expandByPoint(new THREE.Vector3(this.yard.width / 2, YARD_Y, this.frontZ + YARD_GAP + this.yard.depth))
+    }
     return box
   }
 
@@ -199,6 +299,7 @@ export class ClusterWorld {
 
   describe(pick) {
     if (!pick) return null
+    if (pick.type === 'node') return this.yard.describe(pick.id)
     const room = this.rooms.get(pick.ns)
     if (pick.type === 'pod') {
       const p = room?.pods.get(pick.id)
@@ -251,14 +352,23 @@ export class ClusterWorld {
     return null
   }
 
-  updateCutaway(dt, camera, target) {
+  updateView(dt, camera, target) {
     this.cutawayTime += dt
     if (this.cutawayTime < CUTAWAY_INTERVAL) return
     this.cutawayTime = 0
-    this.ray.origin.copy(camera)
-    this.ray.direction.subVectors(target, camera).normalize()
-    const distance = camera.distanceTo(target)
-    for (const room of this.order) room.updateCutaway(camera, this.ray, distance)
+    const eye = camera.position
+    this.ray.origin.copy(eye)
+    this.ray.direction.subVectors(target, eye).normalize()
+    const distance = eye.distanceTo(target)
+    const tanHalf = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)
+    let anyNear = false
+    for (const room of this.order) {
+      room.updateCutaway(eye, this.ray, distance)
+      const ratio = room.radius / (eye.distanceTo(room.home) * tanHalf)
+      room.setFar(ratio < (room.far ? LOD_NEAR : LOD_FAR))
+      anyNear ||= !room.far
+    }
+    this.anyNear = anyNear
   }
 
   tick(dt, time) {
@@ -270,6 +380,7 @@ export class ClusterWorld {
         room.scale.setScalar(THREE.MathUtils.lerp(room.fromScale, 1, this.moveK))
       }
       for (const portal of this.portals.values()) portal.position.lerpVectors(portal.from, portal.home, this.moveK)
+      for (const plate of this.plates.values()) plate.apply(this.moveK)
     }
 
     for (let i = this.exits.length - 1; i >= 0; i--) {

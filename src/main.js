@@ -8,6 +8,7 @@ import { CameraRig } from './core/CameraRig.js'
 import { Picker } from './core/Picker.js'
 import { LightPool } from './core/LightPool.js'
 import { Highlighter } from './core/Highlighter.js'
+import { isTyping } from './core/isTyping.js'
 import { tickRollers } from './objects/Conveyor.js'
 import { ClusterWorld } from './scene/ClusterWorld.js'
 import { PackageSystem } from './traffic/PackageSystem.js'
@@ -16,12 +17,17 @@ import { ProcessFx } from './traffic/ProcessFx.js'
 import { Hud } from './ui/Hud.js'
 import { NamespacePanel } from './ui/NamespacePanel.js'
 import { Selection } from './data/Selection.js'
+import { Views } from './data/Views.js'
 import { connect } from './data/EventStream.js'
 
 async function loadFonts() {
   const fonts = ['500 32px Fredoka', '600 32px Fredoka', '700 32px Fredoka'].map(f => document.fonts.load(f))
   await Promise.race([Promise.all(fonts), new Promise(r => setTimeout(r, 1500))])
 }
+
+const DISTRICTS_KEY = 'kube-view:districts'
+const SELECTION_DELAY_MS = 250
+const OVERVIEW_TIGHTNESS = 1.05
 
 function boot() {
   const stage = new Stage(document.getElementById('scene'))
@@ -37,12 +43,34 @@ function boot() {
   const hud = new Hud(document.getElementById('hud'))
   const panel = new NamespacePanel(hud.namespaceRoot)
   const selection = new Selection()
+  const views = new Views()
+  const frustum = new THREE.Frustum()
+  const viewProjection = new THREE.Matrix4()
   const picker = new Picker(stage.camera, stage.renderer.domElement, world.root)
   const highlighter = new Highlighter()
 
   let topology = null
   let focus = -1
   let framed = false
+  let districts = localStorage.getItem(DISTRICTS_KEY) !== 'off'
+  let clientId = null
+  let selectTimer = null
+  let selected = null
+
+  panel.districts.checked = districts
+  panel.setViews(views.items)
+
+  const publishSelection = () => {
+    if (!clientId) return
+    clearTimeout(selectTimer)
+    selectTimer = setTimeout(() => {
+      fetch('/api/selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client: clientId, hidden: [...selection.hidden] })
+      }).catch(() => {})
+    }, SELECTION_DELAY_MS)
+  }
 
   const focusRoom = index => {
     const rooms = world.order
@@ -50,7 +78,7 @@ function boot() {
     if (index < 0 || !rooms[index]) {
       focus = -1
       hud.setNav('Overview')
-      rig.frame(world.roomsBounds())
+      rig.frame(world.roomsBounds(), { tightness: OVERVIEW_TIGHTNESS })
       return
     }
     const room = rooms[index]
@@ -66,8 +94,10 @@ function boot() {
   const render = ({ reframe = false } = {}) => {
     if (!topology) return
     const entries = topology.namespaces.map((data, index) => ({ data, index })).filter(e => selection.isVisible(e.data.name))
+    if (districts) entries.sort((a, b) => (a.data.district ?? '').localeCompare(b.data.district ?? '') || a.index - b.index)
     const focused = world.order[focus]?.namespace
-    const change = world.setTopology(entries, { animate: framed })
+    const change = world.setTopology(entries, { animate: framed, districts })
+    world.updateNodes(topology)
     traffic.applyChange(change)
     fx.forget(change.left)
     panel.setNamespaces(topology.namespaces, name => selection.isVisible(name))
@@ -76,13 +106,38 @@ function boot() {
     if (focus < 0) hud.setNav('Overview')
     if (!framed && world.order.length) {
       framed = true
-      rig.frame(world.roomsBounds(), { instant: true })
+      rig.frame(world.roomsBounds(), { instant: true, tightness: OVERVIEW_TIGHTNESS })
     } else if (reframe) {
-      rig.frame(focus < 0 ? world.roomsBounds() : world.order[focus].bounds(), { tightness: focus < 0 ? 0.85 : 0.75 })
+      rig.frame(focus < 0 ? world.roomsBounds() : world.order[focus].bounds(), { tightness: focus < 0 ? OVERVIEW_TIGHTNESS : 0.75 })
     }
   }
 
-  selection.onChange(() => render({ reframe: true }))
+  selection.onChange(() => {
+    publishSelection()
+    render({ reframe: true })
+  })
+  panel.onDistricts = enabled => {
+    districts = enabled
+    localStorage.setItem(DISTRICTS_KEY, enabled ? 'on' : 'off')
+    render({ reframe: true })
+  }
+  panel.onSaveView = name => {
+    views.save({ name, hidden: [...selection.hidden], districts, camera: rig.pose() })
+    panel.setViews(views.items)
+  }
+  panel.onDeleteView = name => {
+    views.remove(name)
+    panel.setViews(views.items)
+  }
+  panel.onApplyView = name => {
+    const view = views.get(name)
+    if (!view) return
+    districts = view.districts
+    panel.districts.checked = districts
+    localStorage.setItem(DISTRICTS_KEY, districts ? 'on' : 'off')
+    selection.setHidden(view.hidden)
+    rig.flyTo(view.camera)
+  }
   panel.onToggle = name => selection.toggle(name)
   panel.onFocus = name => {
     if (!selection.isVisible(name)) selection.toggle(name)
@@ -106,9 +161,22 @@ function boot() {
     highlighter.hover(info?.object ?? null)
     hud.showTooltip(info && `${info.type}: ${info.name ?? info.id}`, pos?.x, pos?.y)
   }
+  const describe = info => {
+    const base = world.describe(info)
+    if (!base || info.type !== 'pod') return base
+    return {
+      ...base,
+      sections: [
+        { title: 'Connections (last 30s)', items: traffic.connections(info.ns, info.id) },
+        { title: 'Recent processes', items: fx.recent(info.ns, info.id) }
+      ]
+    }
+  }
+
   picker.onSelect = info => {
+    selected = info
     highlighter.select(info?.object ?? null)
-    hud.showDetails(world.describe(info))
+    hud.showDetails(describe(info))
   }
   picker.onFocus = info => {
     if (!info) return
@@ -118,11 +186,16 @@ function boot() {
   }
 
   addEventListener('keydown', e => {
-    if (e.target instanceof HTMLInputElement) return
+    if (isTyping(e)) return
     if (e.code === 'Escape') {
+      selected = null
       hud.showDetails(null)
       highlighter.select(null)
       focusRoom(-1)
+    }
+    if (e.code === 'KeyB') {
+      world.toggleNodes()
+      if (focus < 0) rig.frame(world.roomsBounds(), { tightness: OVERVIEW_TIGHTNESS })
     }
     const digit = /^Digit([1-9])$/.exec(e.code)
     if (digit) focusRoom(Number(digit[1]) - 1)
@@ -130,7 +203,11 @@ function boot() {
 
   connect(
     {
-      config: cfg => hud.log('info', 'watching', cfg.namespaces === 'all' ? 'all namespaces' : cfg.namespaces.join(', ')),
+      config: cfg => {
+        clientId = cfg.client
+        publishSelection()
+        hud.log('info', 'watching', cfg.namespaces === 'all' ? 'all namespaces' : cfg.namespaces.join(', '))
+      },
       status: s => hud.setStatus(s.source, s.state, s.message),
       topology: next => {
         const first = !topology
@@ -168,20 +245,25 @@ function boot() {
     picker.update()
     lights.update(dt, world.order, rig.controls.target)
     stage.followShadow(rig.controls.target, rig.distance)
-    world.updateCutaway(dt, stage.camera.position, rig.controls.target)
+    world.updateView(dt, stage.camera, rig.controls.target)
+    packages.setShadows(world.anyNear)
+    viewProjection.multiplyMatrices(stage.camera.projectionMatrix, stage.camera.matrixWorldInverse)
+    frustum.setFromProjectionMatrix(viewProjection)
     world.tick(dt, time)
     traffic.tick()
     tickRollers(dt)
     highlighter.tick(time)
-    packages.tick(dt)
+    packages.tick(dt, frustum)
     fx.tick(dt)
     statsTime += dt
     if (statsTime >= 1) {
       hud.setStats({
         flows: Math.round(traffic.counter / statsTime),
         parcels: packages.count,
-        procs: Math.round(fx.counter / statsTime)
+        procs: Math.round(fx.counter / statsTime),
+        draws: stage.renderer.info.render.calls
       })
+      if (selected?.type === 'pod') hud.showDetails(describe(selected))
       panel.setActivity(traffic.activeNamespaces())
       traffic.counter = 0
       fx.counter = 0

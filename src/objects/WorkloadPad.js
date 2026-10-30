@@ -7,9 +7,9 @@ import { palette } from '../theme/palette.js'
 export class WorkloadPad extends THREE.Group {
   constructor(workload, width, depth, ns) {
     super()
-    const frame = block(width, 0.14, depth, hazardMaterial(width / 1.4, depth / 1.4), { radius: 0.05, shared: false })
+    const frame = block(width, 0.14, depth, hazardMaterial(width / 1.4, depth / 1.4), { radius: 0.05 })
     frame.position.y = 0.07
-    const inner = block(width - 0.7, 0.2, depth - 0.7, surface(palette.padInner), { radius: 0.08, shared: false })
+    const inner = block(width - 0.7, 0.2, depth - 0.7, surface(palette.padInner), { radius: 0.08 })
     inner.position.y = 0.1
     this.add(frame, inner)
 

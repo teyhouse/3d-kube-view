@@ -10,7 +10,9 @@ A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Names
 
 | Cluster | Scene |
 | --- | --- |
-| Namespace | Diorama room with its number and name on the wall |
+| Flux path | District plate on the ground |
+| Namespace | Diorama room with its number and name on the wall. Far away it collapses to one block per pod |
+| Node | Plate in the node yard with its pods |
 | Workload | Hazard striped pad with a name sign |
 | Pod | Machine with a lamp, color shows status. Rises on create, sinks on delete, shakes on restart |
 | Service | Gate arch, service traffic rides through it |
@@ -49,9 +51,10 @@ KUBE_CONTEXT=my-ctx PORT=9000 ./start.sh
 | Click | Show details |
 | Double click, `1`-`9` | Fly to object or namespace |
 | `N` | Toggle namespace panel |
+| `B` | Toggle node yard |
 | `Esc` | Back to overview |
 
-The namespace panel lets you show all namespaces or toggle a selection (presets, search, live activity dots). The selection is stored in the browser, and toggling keeps the traffic that is already moving.
+The namespace panel lets you show all namespaces or toggle a selection (presets, search, live activity dots, saved views, districts from Flux paths). The selection is stored in the browser, toggling keeps the traffic that is already moving, and the server only streams what at least one browser shows.
 
 ## Project layout
 

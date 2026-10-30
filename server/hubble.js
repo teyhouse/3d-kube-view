@@ -3,7 +3,7 @@ import { execStream, listPods, supervise } from './kubectl.js'
 
 const MAX_BATCH = 400
 
-export function startHubble(namespaces, { onFlows, onStatus }) {
+export function startHubble(namespaces, { onFlows, onStatus, replay = 0 }) {
   const stops = []
   const batch = new Map()
   let stopped = false
@@ -37,6 +37,7 @@ export function startHubble(namespaces, { onFlows, onStatus }) {
       if (!pods.length) return onStatus('error', 'no cilium agent pods found')
       onStatus('pending', `connecting to ${pods.length} agent(s)`)
       const filters = namespaces.length ? namespaces.flatMap(ns => ['--namespace', ns]) : ['--all-namespaces']
+      if (replay) filters.push('--last', String(replay))
       for (const pod of pods) {
         stops.push(
           supervise(execStream(pod, 'cilium-agent', ['hubble', 'observe', '--follow', '-o', 'json', ...filters]), {

@@ -5,6 +5,7 @@ import { palette, hex } from '../theme/palette.js'
 const LIFE = 2.4
 const MAX_SPRITES = 60
 const MAX_TEXTURES = 200
+const MAX_RECENT = 8
 
 export class ProcessFx {
   constructor(world, root) {
@@ -13,17 +14,33 @@ export class ProcessFx {
     this.sprites = []
     this.textures = new Map()
     this.counter = 0
+    this.recentByPod = new Map()
+  }
+
+  remember(event) {
+    if (event.type === 'exit') return
+    const key = `${event.ns}/${event.pod}`
+    const list = this.recentByPod.get(key) ?? []
+    const name = event.type === 'exec' ? event.binary.split('/').pop() : event.fn ?? event.type
+    list.unshift(`${new Date().toLocaleTimeString()} ${name}`)
+    list.length = Math.min(list.length, MAX_RECENT)
+    this.recentByPod.set(key, list)
+  }
+
+  recent(ns, pod) {
+    return this.recentByPod.get(`${ns}/${pod}`) ?? []
   }
 
   handle(events) {
     for (const event of events) {
       this.counter++
+      this.remember(event)
       const room = this.world.rooms.get(event.ns)
       const station = room?.stations.get(event.pod)
       if (!station) continue
       const color = palette.process[event.type] ?? palette.process.other
       station.pulse(color)
-      if (event.type === 'exit' || this.sprites.length >= MAX_SPRITES) continue
+      if (event.type === 'exit' || room.far || this.sprites.length >= MAX_SPRITES) continue
       const text = event.type === 'exec' ? event.binary.split('/').pop() : event.fn ?? event.type
       const { texture, aspect } = this.texture(text, color)
       const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }))

@@ -35,10 +35,16 @@ export class Highlighter {
     ring.removeFromParent()
     ring.visible = false
     if (!object) return
-    box.setFromObject(object)
-    box.getSize(size)
     object.getWorldPosition(origin)
-    ring.position.set(box.min.x + size.x / 2 - origin.x, Math.max(box.min.y - origin.y, 0) + 0.06, box.min.z + size.z / 2 - origin.z)
+    const known = object.userData.bounds
+    if (known) {
+      size.copy(known.size)
+      ring.position.set(known.center.x, Math.max(known.bottom, 0) + 0.06, known.center.z)
+    } else {
+      box.setFromObject(object)
+      box.getSize(size)
+      ring.position.set(box.min.x + size.x / 2 - origin.x, Math.max(box.min.y - origin.y, 0) + 0.06, box.min.z + size.z / 2 - origin.z)
+    }
     ring.scale.set((size.x / 2 + MARGIN) / HALF_SIDE, 1, (size.z / 2 + MARGIN) / HALF_SIDE)
     ring.visible = true
     object.add(ring)

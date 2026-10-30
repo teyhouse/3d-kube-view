@@ -12,6 +12,7 @@ const TEMPLATE = `
     <div><b data-stat="flows">0</b><span>flows/s</span></div>
     <div><b data-stat="parcels">0</b><span>parcels</span></div>
     <div><b data-stat="procs">0</b><span>proc/s</span></div>
+    <div><b data-stat="draws">0</b><span>draws</span></div>
   </div>
   <div class="ns-panel"></div>
   <div class="panel log"><h4>Live events</h4><ul></ul></div>
@@ -24,7 +25,7 @@ const TEMPLATE = `
     <span><i style="--c:#ffd5a0"></i>ICMP</span>
     <span><i style="--c:#ff4d61"></i>Dropped</span>
   </div>
-  <div class="help">WASD pan · Q/E rotate · R/F zoom · Shift faster · Click select · Double click or 1-9 focus · N namespaces · Esc overview</div>
+  <div class="help">WASD pan · Q/E rotate · R/F zoom · Shift faster · Click select · Double click or 1-9 focus · N namespaces · B nodes · Esc overview</div>
   <div class="nav">
     <button data-step="-1" aria-label="previous">‹</button>
     <span class="nav-label">Overview</span>
@@ -86,6 +87,12 @@ export class Hud {
     const table = el('dl')
     for (const [k, v] of info.rows) table.append(el('dt', '', k), el('dd', '', String(v)))
     this.details.append(table)
+    for (const section of info.sections ?? []) {
+      this.details.append(el('h5', '', section.title))
+      const list = el('ul')
+      for (const item of section.items.length ? section.items : ['none yet']) list.append(el('li', '', item))
+      this.details.append(list)
+    }
     this.details.classList.remove('hidden')
   }
 

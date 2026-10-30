@@ -2,9 +2,76 @@ import { run } from './kubectl.js'
 
 const KINDS = 'pods,services,deployments,statefulsets,daemonsets,replicasets,jobs'
 const CONTROLLERS = new Set(['Deployment', 'StatefulSet', 'DaemonSet'])
+const FLUX_KINDS = 'kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io'
+const KUSTOMIZATION_LABEL = 'kustomize.toolkit.fluxcd.io/name'
+const FLUX_CACHE_MS = 60000
+
+let fluxCache = { at: 0, items: [] }
+
+async function fetchFlux() {
+  if (Date.now() - fluxCache.at < FLUX_CACHE_MS) return fluxCache.items
+  const items = await run(['get', FLUX_KINDS, '-A', '-o', 'json'])
+    .then(raw => JSON.parse(raw).items)
+    .catch(() => [])
+  fluxCache = { at: Date.now(), items }
+  return items
+}
+
+function districtResolver(fluxItems) {
+  const paths = new Map()
+  for (const item of fluxItems) {
+    if (item.kind !== 'Kustomization') continue
+    const top = (item.spec?.path ?? '').replace(/^\.?\//, '').split('/')[0]
+    if (top) paths.set(item.metadata.name, top)
+  }
+  const releases = new Map()
+  for (const item of fluxItems) {
+    if (item.kind !== 'HelmRelease') continue
+    const owner = paths.get(item.metadata.labels?.[KUSTOMIZATION_LABEL])
+    const ns = item.spec?.targetNamespace ?? item.metadata.namespace
+    if (!owner) continue
+    if (!releases.has(ns)) releases.set(ns, [])
+    releases.get(ns).push(owner)
+  }
+  return (name, items) => {
+    const votes = [...(releases.get(name) ?? [])]
+    for (const item of items) {
+      const owner = paths.get(item.metadata.labels?.[KUSTOMIZATION_LABEL])
+      if (owner && item.kind !== 'Pod') votes.push(owner)
+    }
+    if (votes.length) return mostCommon(votes)
+    return /^(kube-|cilium)/.test(name) ? 'system' : 'other'
+  }
+}
+
+function mostCommon(values) {
+  const counts = new Map()
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1)
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0]
+}
+
+function toNode(node) {
+  const roles = Object.keys(node.metadata.labels ?? {})
+    .filter(k => k.startsWith('node-role.kubernetes.io/'))
+    .map(k => k.split('/')[1])
+  return {
+    name: node.metadata.name,
+    ready: (node.status?.conditions ?? []).some(c => c.type === 'Ready' && c.status === 'True'),
+    roles,
+    kubelet: node.status?.nodeInfo?.kubeletVersion ?? null,
+    cpu: node.status?.capacity?.cpu ?? null,
+    memory: node.status?.capacity?.memory ?? null
+  }
+}
 
 export async function fetchTopology(filter) {
-  const [nsRaw, raw] = await Promise.all([run(['get', 'namespaces', '-o', 'json']), run(['get', KINDS, '-A', '-o', 'json'])])
+  const [nsRaw, raw, nodesRaw, flux] = await Promise.all([
+    run(['get', 'namespaces', '-o', 'json']),
+    run(['get', KINDS, '-A', '-o', 'json']),
+    run(['get', 'nodes', '-o', 'json']),
+    fetchFlux()
+  ])
+  const districtOf = districtResolver(flux)
   const names = JSON.parse(nsRaw)
     .items.map(i => i.metadata.name)
     .filter(name => !filter.length || filter.includes(name))
@@ -15,7 +82,13 @@ export async function fetchTopology(filter) {
     if (!byNamespace.has(ns)) byNamespace.set(ns, [])
     byNamespace.get(ns).push(item)
   }
-  return { namespaces: names.map(name => buildNamespace(name, byNamespace.get(name) ?? [])) }
+  return {
+    nodes: JSON.parse(nodesRaw).items.map(toNode),
+    namespaces: names.map(name => {
+      const items = byNamespace.get(name) ?? []
+      return { ...buildNamespace(name, items), district: districtOf(name, items) }
+    })
+  }
 }
 
 function buildNamespace(name, items) {

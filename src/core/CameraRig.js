@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { isTyping } from './isTyping.js'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const FLIGHT_TIME = 0.9
@@ -24,7 +25,7 @@ export class CameraRig {
     this.flight = null
     this.controls.addEventListener('start', () => (this.flight = null))
     addEventListener('keydown', e => {
-      if (e.target instanceof HTMLInputElement) return
+      if (isTyping(e)) return
       this.keys.add(e.code)
     })
     addEventListener('keyup', e => this.keys.delete(e.code))
@@ -46,6 +47,20 @@ export class CameraRig {
       return
     }
     this.flight = { t: 0, fromPos: this.camera.position.clone(), fromTarget: this.controls.target.clone(), toPos: position, toTarget: center }
+  }
+
+  pose() {
+    return { position: this.camera.position.toArray(), target: this.controls.target.toArray() }
+  }
+
+  flyTo({ position, target }) {
+    this.flight = {
+      t: 0,
+      fromPos: this.camera.position.clone(),
+      fromTarget: this.controls.target.clone(),
+      toPos: new THREE.Vector3().fromArray(position),
+      toTarget: new THREE.Vector3().fromArray(target)
+    }
   }
 
   get distance() {

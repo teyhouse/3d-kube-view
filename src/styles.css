@@ -210,6 +210,9 @@ body {
 .details {
   bottom: 18px;
   right: 18px;
+  max-height: 46vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
   width: 280px;
   padding: 14px 16px;
 }
@@ -273,7 +276,8 @@ body {
 
 .help {
   left: 18px;
-  bottom: 18px;
+  bottom: 14px;
+  max-width: calc(50vw - 170px);
   font-size: 12px;
   color: var(--muted);
 }
@@ -479,4 +483,112 @@ body {
   font-size: 11px;
   min-width: 18px;
   text-align: right;
+}
+
+.details h5 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.details ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  word-break: break-all;
+}
+
+.ns-districts {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ns-districts input {
+  accent-color: #a17cf7;
+  margin: 0;
+}
+
+.ns-list {
+  flex: 1;
+  min-height: 60px;
+}
+
+.ns-views-title {
+  margin-top: 10px !important;
+}
+
+.ns-views {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  max-height: 96px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.ns-views li {
+  display: flex;
+  align-items: center;
+}
+
+.ns-view-open,
+.ns-view-remove {
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.ns-view-open {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ns-view-open:hover {
+  color: #c6e86e;
+}
+
+.ns-view-remove {
+  color: var(--muted);
+}
+
+.ns-save {
+  display: flex;
+  gap: 6px;
+}
+
+.ns-save input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.ns-save button {
+  border: 0;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: rgba(161, 124, 247, 0.4);
+  cursor: pointer;
 }

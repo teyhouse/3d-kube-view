@@ -68,7 +68,12 @@ export class PackageSystem {
     }
   }
 
-  tick(dt) {
+  setShadows(enabled) {
+    this.bodies.castShadow = enabled
+    this.tapes.castShadow = enabled
+  }
+
+  tick(dt, frustum) {
     for (let i = this.active.length - 1; i >= 0; i--) {
       if (this.advance(this.active[i], dt)) continue
       this.pool.push(this.active[i])
@@ -78,7 +83,7 @@ export class PackageSystem {
 
     let n = 0
     for (const p of this.active) {
-      if (!p.placed) continue
+      if (!p.placed || p.route.path.legs[p.leg]?.room?.far || !frustum.containsPoint(p.position)) continue
       dummy.position.copy(p.position)
       dummy.rotation.copy(p.rotation)
       dummy.scale.setScalar(this.visualScale(p))

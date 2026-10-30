@@ -22,6 +22,11 @@ export class Selection {
     this.commit()
   }
 
+  setHidden(names) {
+    this.hidden = new Set(names)
+    this.commit()
+  }
+
   onChange(fn) {
     this.listeners.push(fn)
   }

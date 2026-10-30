@@ -10,6 +10,8 @@ const HISTORY_SECONDS = 30
 const MIN_SPAWN_GAP_MS = 120
 const HATCH_PACE = 0.45
 const MAX_SEED_PARCELS = 160
+const FAR_SPAWN_GAP_MS = 1000
+const MAX_CONNECTIONS = 8
 
 export class TrafficSystem {
   constructor(world, root, packages) {
@@ -125,12 +127,32 @@ export class TrafficSystem {
       this.record(flow, this.keyOf(flow), now)
       const route = this.route(flow, now)
       if (!route) continue
-      if (now - route.lastSpawn < MIN_SPAWN_GAP_MS) continue
-      this.spawn(route, flow, flow.reply ? 1 : Math.min(flow.count, 3), now)
+      route.lastUsed = now
+      route.parts.forEach(part => (part.lastUsed = now))
+      route.pending += flow.count
+      const far = route.namespaces.every(ns => this.world.rooms.get(ns)?.far ?? true)
+      if (far && flow.reply) continue
+      if (now - route.lastSpawn < (far ? FAR_SPAWN_GAP_MS : MIN_SPAWN_GAP_MS)) continue
+      const fat = far ? Math.min(2.6, 1 + Math.log2(1 + route.pending) / 3) : null
+      this.spawn(route, flow, far || flow.reply ? 1 : Math.min(route.pending, 3), now, fat)
+      route.pending = 0
     }
   }
 
-  spawn(route, flow, n, now) {
+  connections(ns, pod) {
+    const id = `pod:${ns}/${pod}`
+    const totals = new Map()
+    for (const { flow, buckets } of this.history.values()) {
+      if (flow.reply || (flow.srcId !== id && flow.dstId !== id)) continue
+      const out = flow.srcId === id
+      const peer = out ? flow.dstId : flow.srcId
+      const label = `${out ? 'to' : 'from'} ${peer.replace('pod:', '')}${flow.port ? `:${flow.port}` : ''}`
+      totals.set(label, (totals.get(label) ?? 0) + buckets.reduce((sum, n) => sum + n, 0))
+    }
+    return [...totals].sort((a, b) => b[1] - a[1]).slice(0, MAX_CONNECTIONS).map(([label, n]) => `${label} (${n})`)
+  }
+
+  spawn(route, flow, n, now, fat = null) {
     route.lastUsed = now
     route.lastSpawn = now
     route.parts.forEach(part => (part.lastUsed = now))
@@ -140,7 +162,7 @@ export class TrafficSystem {
       this.packages.spawn(route, {
         color,
         dropped,
-        scale: flow.reply ? 0.65 : 1,
+        scale: fat ?? (flow.reply ? 0.65 : 1),
         speed: flow.reply ? 11 : 9,
         delay: i * 0.16 + Math.random() * 0.12
       })
@@ -162,7 +184,7 @@ export class TrafficSystem {
     if (route) return route
     const built = this.buildPath(flow)
     if (!built) return null
-    route = { ...built, flow, lastUsed: now, lastSpawn: 0, namespaces: [flow.src.ns, flow.dst.ns].filter(Boolean) }
+    route = { ...built, flow, lastUsed: now, lastSpawn: 0, pending: 0, namespaces: [flow.src.ns, flow.dst.ns].filter(Boolean) }
     this.routes.set(key, route)
     return route
   }

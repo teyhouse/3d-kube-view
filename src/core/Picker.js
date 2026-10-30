@@ -1,5 +1,12 @@
 import * as THREE from 'three'
 
+function isShown(object) {
+  for (let node = object; node; node = node.parent) {
+    if (!node.visible) return false
+  }
+  return true
+}
+
 export class Picker {
   constructor(camera, dom, root) {
     this.camera = camera
@@ -47,8 +54,8 @@ export class Picker {
   pick() {
     this.raycaster.setFromCamera(this.pointer, this.camera)
     for (const hit of this.raycaster.intersectObject(this.root, true)) {
-      if (hit.object.userData.noPick) continue
-      let o = hit.object
+      if (hit.object.userData.noPick || !isShown(hit.object)) continue
+      let o = hit.object.userData.instancePicks?.[hit.instanceId] ?? hit.object
       while (o && !o.userData.pick) o = o.parent
       if (o) return { ...o.userData.pick, object: o }
     }
