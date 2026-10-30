@@ -1,5 +1,13 @@
 # 3D Kube View
 
+[![CI](https://github.com/teyhouse/3d-kube-view/actions/workflows/ci.yml/badge.svg)](https://github.com/teyhouse/3d-kube-view/actions/workflows/ci.yml)
+[![License](https://img.shields.io/github/license/teyhouse/3d-kube-view)](LICENSE)
+[![Renovate](https://img.shields.io/badge/renovate-enabled-brightgreen?logo=renovate)](renovate.json)
+[![three.js](https://img.shields.io/github/package-json/dependency-version/teyhouse/3d-kube-view/three?logo=threedotjs&label=three.js)](https://threejs.org)
+[![Node](https://img.shields.io/badge/node-%5E20.19%20%7C%7C%20%3E%3D22.12-brightgreen?logo=nodedotjs)](https://nodejs.org)
+[![Cilium Hubble](https://img.shields.io/badge/Cilium-Hubble-F8C517?logo=cilium)](https://cilium.io)
+[![Tetragon](https://img.shields.io/badge/Cilium-Tetragon-F8C517?logo=cilium)](https://tetragon.io)
+
 A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Namespaces are rooms, pods are machines, and real network flows from Cilium Hubble travel as parcels on conveyor belts. When Tetragon reports a process event, the machine's lamp flashes and the process name floats above it.
 
 This app is meant to run locally on your workstation, not in the cluster.

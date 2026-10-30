@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20.19', 'lts/*']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium-headless-shell
+      - run: npm run build
+      - run: npm run test:smoke
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: smoke-screenshot-${{ strategy.job-index }}
+          path: screenshots/smoke.png
+          if-no-files-found: ignore

@@ -28,6 +28,16 @@ Headless rendering is software only, at a few frames per second. Time is capped 
 
 `./start.sh demo` serves a simulated cluster from `server/demo.js`, which also covers behavior a real cluster rarely shows: multiple nodes, policy drops, HTTP errors, alerts, pod rollouts and restarts. `DEMO=1 ./start.sh dev` gives the same data with hot reload. When an event shape changes in `server/topology.js`, `server/hubble.js` or `server/tetragon.js`, update the demo too.
 
+## Smoke test
+
+`npm run build && npm run test:smoke` starts the app in demo mode and loads it in headless Chromium. It checks the localhost API check, the loading screen, topology, traffic, that the scene really renders, namespace toggling, pause, and that the browser reports no errors. CI runs it on every push and pull request with the oldest supported Node version and the current LTS.
+
+It only covers the demo path, not `kubectl`, Hubble or Tetragon, which need a real cluster.
+
+## Dependency updates
+
+Renovate opens a pull request for every update and merges it by itself once CI passes, including major versions. Releases have to be 3 days old first, so a broken or compromised release has time to be pulled. The smoke test is the only gate, so it is worth keeping it honest.
+
 ## Checks after touching streams
 
 - Events must really arrive, a green status chip only means the process started. The `proc/s` value should move on a cluster with activity.

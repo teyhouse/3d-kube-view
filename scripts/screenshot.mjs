@@ -1,20 +1,15 @@
 import { mkdir } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { launchBrowser } from './browser.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= `${root}.browser/ms-playwright`
-
 const url = process.argv[2] ?? 'http://127.0.0.1:5173/'
 const outDir = process.argv[3] ?? `${root}screenshots`
 const settle = Number(process.env.SETTLE_MS ?? 8000)
 
-const { chromium } = await import('playwright')
 await mkdir(outDir, { recursive: true })
 
-const browser = await chromium.launch({
-  args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-  env: { ...process.env, LD_LIBRARY_PATH: `${root}.browser/libs/usr/lib/x86_64-linux-gnu` }
-})
+const browser = await launchBrowser()
 const page = await browser.newPage({ viewport: { width: 1600, height: 900 } })
 page.on('console', m => m.type() === 'error' && console.log('console error:', m.text()))
 page.on('pageerror', e => console.log('page error:', e.message))
