@@ -22,7 +22,11 @@ const WALL_SPEED = 7
 const LABEL_MIN = 0.6
 const FOOTPRINT = 1.5
 const AISLE = CELL / 2
-const GATE_LANE = 2
+const TRUNK_OFFSET = WALL_T + 1.2
+const GATE_OFFSET = 2.6
+const LANE_OFFSET = 2.4
+const LANE_CLEARANCE = 2.2
+const FRONT_MARGIN = 3
 const ROOM_ALERT_TIME = 20
 const SUMMARY_CELL = 1.7
 const SUMMARY_POD = new THREE.BoxGeometry(1.2, 1, 1.2)
@@ -71,6 +75,7 @@ export class NamespaceRoom extends THREE.Group {
     this.buildSummary()
     this.belts = new BeltNetwork(this)
     this.detail.add(this.belts)
+    this.buildServiceBelts()
     this.userData.pick = { type: 'namespace', id: this.namespace, ns: this.namespace }
   }
 
@@ -102,10 +107,11 @@ export class NamespaceRoom extends THREE.Group {
 
     const gatesW = this.data.services.length * GATE_SPACING
     const width = Math.max(18, contentW + 10, gatesW + 6)
-    const depth = Math.max(17, contentD + 13)
+    const backRow = this.data.services.length ? TRUNK_OFFSET + GATE_OFFSET + LANE_OFFSET + LANE_CLEARANCE : WALL_T + 3.5
+    const depth = Math.max(17, contentD + backRow + FRONT_MARGIN)
 
     const left = -width / 2 + WALL_T + 2 + (width - WALL_T - 4 - contentW) / 2
-    const top = -depth / 2 + WALL_T + 3.5
+    const top = -depth / 2 + backRow
     for (const item of items) {
       item.cx = left + item.x + item.w / 2
       item.cz = top + item.z + item.d / 2
@@ -118,9 +124,9 @@ export class NamespaceRoom extends THREE.Group {
     const floor = block(W, 3, D, surface(palette.floor), { radius: 0.35, shared: false })
     floor.position.y = -1.5
 
-    this.trunkZ = -D / 2 + WALL_T + 1.2
-    this.gateZ = D / 2 - 3.2
-    this.gateLaneZ = this.gateZ + GATE_LANE
+    this.trunkZ = -D / 2 + TRUNK_OFFSET
+    this.gateZ = this.trunkZ + GATE_OFFSET
+    this.gateLaneZ = this.gateZ + LANE_OFFSET
     this.cutBack = false
     this.cutLeft = false
 
@@ -179,7 +185,8 @@ export class NamespaceRoom extends THREE.Group {
       })
     }
 
-    const services = this.data.services
+    const services = this.sortedServices()
+    this.bypassX = services.length ? (-(services.length - 1) / 2) * GATE_SPACING - GATE_SPACING / 2 : null
     services.forEach((service, i) => {
       const gate = new ServiceGate(service, this.namespace)
       gate.position.set((i - (services.length - 1) / 2) * GATE_SPACING, 0, this.gateZ)
@@ -189,6 +196,23 @@ export class NamespaceRoom extends THREE.Group {
       statics.push(gate)
     })
     batchStatic(this.detail, statics)
+  }
+
+  buildServiceBelts() {
+    for (const service of this.data.services) {
+      const target = { x: this.gates.get(service.name).position.x, z: this.gateLaneZ }
+      for (const pod of service.backends) {
+        if (this.stations.has(pod)) this.belts.prebuild(HATCH, pod, target)
+      }
+    }
+  }
+
+  sortedServices() {
+    const center = service => {
+      const xs = service.backends.map(name => this.stations.get(name)?.home.x).filter(x => x !== undefined)
+      return xs.length ? xs.reduce((sum, x) => sum + x, 0) / xs.length : Infinity
+    }
+    return [...this.data.services].sort((a, b) => center(a) - center(b))
   }
 
   buildSummary() {

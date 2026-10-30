@@ -7,6 +7,7 @@ import { palette } from '../theme/palette.js'
 const PILLAR_GAP = 7
 const PILLAR_SEARCH = [0, 0.6, -0.6, 1.2, -1.2, 1.8, -1.8, 2.4, -2.4, 3, -3]
 const EPSILON = 0.01
+const HATCH = '__hatch__'
 
 export class BeltNetwork extends THREE.Group {
   constructor(room) {
@@ -22,15 +23,7 @@ export class BeltNetwork extends THREE.Group {
     const start = room.beltPoint(from)
     const end = room.beltPoint(to)
     const trunk = room.trunkZ
-    const waypoints = [start]
-
-    if (gate) {
-      waypoints.push([start[0], trunk], [gate.x, trunk], [gate.x, gate.z], [end[0], gate.z], end)
-    } else if (Math.abs(start[0] - end[0]) < EPSILON) {
-      waypoints.push(end)
-    } else {
-      waypoints.push([start[0], trunk], [end[0], trunk], end)
-    }
+    const waypoints = this.waypoints(from, to, start, end, gate)
 
     const points = waypoints.filter((p, i) => i === 0 || Math.hypot(p[0] - waypoints[i - 1][0], p[1] - waypoints[i - 1][1]) > EPSILON)
     const parts = []
@@ -42,6 +35,32 @@ export class BeltNetwork extends THREE.Group {
     const path = points.map(([x, z]) => new THREE.Vector3(x, y, z))
     const gateIndex = gate ? points.findIndex(p => Math.abs(p[0] - gate.x) < EPSILON && Math.abs(p[1] - gate.z) < EPSILON) : -1
     return { path, parts, gateIndex }
+  }
+
+  prebuild(from, to, gate) {
+    for (const part of this.plan(from, to, gate).parts) part.keep = true
+  }
+
+  waypoints(from, to, start, end, gate) {
+    const { room } = this
+    const trunk = room.trunkZ
+    const sameAisle = Math.abs(start[0] - end[0]) < EPSILON
+
+    if (room.bypassX === null) {
+      return sameAisle ? [start, end] : [start, [start[0], trunk], [end[0], trunk], end]
+    }
+
+    const lane = room.gateLaneZ
+    const toLane = point => [point[0], lane]
+    const toTrunk = [[room.bypassX, lane], [room.bypassX, trunk]]
+
+    if (gate) {
+      const entry = from === HATCH ? [start] : [start, toLane(start), ...toTrunk]
+      return [...entry, [gate.x, trunk], [gate.x, lane], toLane(end), end]
+    }
+    if (from === HATCH) return [start, [room.bypassX, trunk], [room.bypassX, lane], toLane(end), end]
+    if (to === HATCH) return [start, toLane(start), ...toTrunk, end]
+    return sameAisle ? [start, end] : [start, toLane(start), toLane(end), end]
   }
 
   lane(a, b) {
@@ -110,7 +129,7 @@ export class BeltNetwork extends THREE.Group {
   prune(now, idleMs) {
     for (const map of [this.lanes, this.junctions]) {
       for (const [key, part] of map) {
-        if (now - part.lastUsed < idleMs) continue
+        if (part.keep || now - part.lastUsed < idleMs) continue
         this.remove(part.object)
         disposeTree(part.object)
         map.delete(key)

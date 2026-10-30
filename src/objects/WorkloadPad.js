@@ -5,6 +5,7 @@ import { hazardMaterial } from '../theme/textures.js'
 import { palette } from '../theme/palette.js'
 
 const RAIL_Y = 0.8
+const SIGN_Y = 1.6
 
 export class WorkloadPad extends THREE.Group {
   constructor(workload, width, depth, ns, fence = null) {
@@ -23,12 +24,12 @@ export class WorkloadPad extends THREE.Group {
     const kind = textPlane(`${workload.kind} ${workload.ready}/${workload.desired}`, 0.24, { color: '#b9a8e4', maxWidth: boardWidth - 0.3, weight: 500 })
     kind.position.set(0, -0.24, 0.08)
     sign.add(board, name, kind)
-    sign.position.set(0, 0.95, depth / 2 - 0.55)
+    sign.position.set(0, SIGN_Y, depth / 2 - 0.55)
     sign.rotation.x = -0.35
 
     for (const x of [-boardWidth / 2 + 0.3, boardWidth / 2 - 0.3]) {
-      const leg = block(0.12, 0.6, 0.12, surface(palette.metal), { radius: 0.03 })
-      leg.position.set(x, 0.45, depth / 2 - 0.6)
+      const leg = block(0.12, SIGN_Y - 0.15, 0.12, surface(palette.metal), { radius: 0.03 })
+      leg.position.set(x, (SIGN_Y + 0.15) / 2, depth / 2 - 0.6)
       this.add(leg)
     }
     this.add(sign)

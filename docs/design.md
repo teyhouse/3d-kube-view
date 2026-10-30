@@ -19,7 +19,7 @@ An isometric factory diorama: solid rounded primitives, a small harmonious palet
 | Workload | Hazard striped pad with a tilted name sign |
 | Network policy | Fence around the pad: green restricts both directions, blue ingress only, peach egress only, none means not fully restricted |
 | Pod | Machine with a lamp, height by container count, color by status |
-| Service | Tall gate arch near the front of the room, service traffic rides through it |
+| Service | Tall gate arch between the trunk and the pods, service traffic rides through it |
 | Entry point (LoadBalancer, NodePort, Gateway, tunnel) | Bay of the loading dock with a sign |
 | Node | Plate in the node yard with one block per pod, colored by namespace |
 | Flow inside a room | Parcel on the belt network |
@@ -49,4 +49,10 @@ An isometric factory diorama: solid rounded primitives, a small harmonious palet
 
 ## Belt network
 
-Each room has a trunk along the back wall, columns in the aisles between machines and a lane behind the gates. Lanes grow on demand and disappear after two idle minutes. Belts run in the aisles so lamps and labels stay visible. Pillars avoid machines, signs and gates.
+From back to front, a room has the hatch, a trunk along the back wall, a row of service gates, a distribution lane and the pods. Service traffic flows in one direction: hatch, trunk, through the arch, distribution lane, down the aisle, into the pod.
+
+Traffic that skips the service (node probes, replies) uses one bypass column next to the gates, so only that column and the arches cross the gate row. Rooms without services have no gate row, their aisles connect directly to the trunk.
+
+The belts of a service with backend pods always exist, so its arch always stands over a belt, even without traffic. A service without pods keeps a free standing arch. All other lanes grow on demand and disappear after two idle minutes. Belts run in the aisles so lamps and labels stay visible. Pillars avoid machines, signs and gates.
+
+A gate is a logical stop, not a network hop: Cilium rewrites the service address before the packet travels, so Hubble mostly reports pod to pod. The gate is inferred from destination pod and service `targetPort`.
