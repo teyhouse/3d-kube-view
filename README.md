@@ -17,12 +17,13 @@ A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Names
 | Pod | Machine with a lamp, color shows status. Rises on create, sinks on delete, shakes on restart |
 | Service | Gate arch, service traffic rides through it |
 | Flow | Parcel on a belt (inside a room) or through a tube (between rooms) |
+| Entry point (LoadBalancer, Gateway, tunnel) | Bay of the loading dock, Internet traffic passes through it |
 | Internet, node/host, hidden namespace | Floating portals |
 | Tetragon exec / kprobe | Lamp flash and floating process name |
 | Tetragon TracingPolicy event, privileged exec | Beacon on the machine and an entry in the alert feed |
 | DNS, HTTP, drop reason | Floating tags |
 
-Parcel colors: TCP lime, UDP blue, HTTP pink, DNS blue, ICMP peach, dropped red (falls off the belt). Click a legend entry to hide that traffic. Belts and tubes warm up with throughput. The panel at the bottom right shows fps, frame time, CPU and GPU time, draw calls and triangles.
+Parcel colors: TCP lime, UDP blue, HTTP pink, DNS blue, ICMP peach, dropped red (falls off the belt). Click a legend entry to hide that traffic, including replies. Belts and tubes warm up with throughput. The panel at the bottom right shows fps, frame time, CPU and GPU time, draw calls and triangles.
 
 ## Requirements
 
@@ -82,6 +83,6 @@ npm run setup:browser
 npm run screenshot -- http://127.0.0.1:8080/
 ```
 
-## Roadmap
+## Documentation
 
-See [plan.md](plan.md) for the design, current status and next phases.
+See [docs/](docs/README.md) for design, architecture, decisions and known limits.
