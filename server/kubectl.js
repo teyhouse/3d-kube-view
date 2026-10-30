@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { config } from './config.js'
 
-const REMOTE_WATCHDOG = 'exec 3<&0; ( cat <&3 >/dev/null; kill $$; sleep 3; kill -9 $$ ) & exec "$@"'
+const REMOTE_WATCHDOG = 'exec 3<&0; ( cat <&3 >/dev/null; kill $$; sleep 3; kill -9 $$ ) & exec "$@" </dev/null'
 const children = new Set()
 
 const baseArgs = () => (config.context ? ['--context', config.context] : [])
