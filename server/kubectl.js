@@ -2,7 +2,16 @@ import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { config } from './config.js'
 
+const REMOTE_WATCHDOG = 'exec 3<&0; ( cat <&3 >/dev/null; kill $$; sleep 3; kill -9 $$ ) & exec "$@"'
+const children = new Set()
+
 const baseArgs = () => (config.context ? ['--context', config.context] : [])
+
+process.on('exit', () => children.forEach(child => child.kill()))
+
+export function execStream(pod, container, command) {
+  return ['exec', '-i', '-n', 'kube-system', pod, '-c', container, '--', 'sh', '-c', REMOTE_WATCHDOG, 'stream', ...command]
+}
 
 export function run(args) {
   return new Promise((resolve, reject) => {
@@ -31,6 +40,8 @@ export function supervise(args, { onLine, onError, onStart }) {
     let started = false
     let stderr = ''
     child = spawn(config.kubectl, [...baseArgs(), ...args])
+    const current = child
+    children.add(current)
     createInterface({ input: child.stdout }).on('line', line => {
       if (!started) {
         started = true
@@ -42,6 +53,7 @@ export function supervise(args, { onLine, onError, onStart }) {
     child.stderr.on('data', d => (stderr = (stderr + d).slice(-2000)))
     child.on('error', e => onError?.(e.message))
     child.on('close', code => {
+      children.delete(current)
       if (stopped) return
       onError?.(stderr.trim().split('\n').pop() || `stream exited with ${code}`)
       timer = setTimeout(start, delay)

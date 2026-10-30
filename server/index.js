@@ -18,6 +18,8 @@ const types = {
 
 const api = createApi()
 
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(0))
+
 const serveStatic = async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost')
   const file = normalize(join(dist, pathname === '/' ? 'index.html' : pathname))

@@ -1,5 +1,5 @@
 import { config } from './config.js'
-import { listPods, supervise } from './kubectl.js'
+import { execStream, listPods, supervise } from './kubectl.js'
 
 const MAX_BATCH = 200
 
@@ -46,7 +46,7 @@ export function startTetragon(namespaces, { onEvents, onStatus }) {
       const filters = namespaces.flatMap(ns => ['--namespace', ns])
       for (const pod of pods) {
         stops.push(
-          supervise(['exec', '-n', 'kube-system', pod, '-c', 'tetragon', '--', 'tetra', 'getevents', '-o', 'json', ...filters], {
+          supervise(execStream(pod, 'tetragon', ['tetra', 'getevents', '-o', 'json', ...filters]), {
             onLine: ingest,
             onStart: () => onStatus('ok', `${pods.length} agent(s)`),
             onError: message => onStatus('error', message)

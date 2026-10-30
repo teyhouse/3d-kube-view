@@ -1,5 +1,5 @@
 import { config } from './config.js'
-import { listPods, supervise } from './kubectl.js'
+import { execStream, listPods, supervise } from './kubectl.js'
 
 const MAX_BATCH = 400
 
@@ -16,7 +16,7 @@ export function startHubble(namespaces, { onFlows, onStatus }) {
       return
     }
     const flow = msg.flow
-    if (!flow?.IP) return
+    if (!flow?.IP || flow.Type === 'SOCK') return
     const summary = summarize(flow)
     const key = `${summary.srcId}|${summary.dstId}|${summary.proto}|${summary.port}|${summary.verdict}|${summary.reply}`
     const entry = batch.get(key)
@@ -39,7 +39,7 @@ export function startHubble(namespaces, { onFlows, onStatus }) {
       const filters = namespaces.length ? namespaces.flatMap(ns => ['--namespace', ns]) : ['--all-namespaces']
       for (const pod of pods) {
         stops.push(
-          supervise(['exec', '-n', 'kube-system', pod, '-c', 'cilium-agent', '--', 'hubble', 'observe', '--follow', '-o', 'json', ...filters], {
+          supervise(execStream(pod, 'cilium-agent', ['hubble', 'observe', '--follow', '-o', 'json', ...filters]), {
             onLine: ingest,
             onStart: () => onStatus('ok', `${pods.length} agent(s)`),
             onError: message => onStatus('error', message)
@@ -80,8 +80,7 @@ function summarize(flow) {
     l7,
     port,
     verdict: flow.verdict ?? 'UNKNOWN',
-    reply,
-    service: flow.destination_service?.name ?? null
+    reply
   }
 }
 
