@@ -19,8 +19,8 @@ Inspired by isometric "factory diorama" scenes: solid, rounded primitives, a sma
 | Namespace | A diorama room: thick floor slab, two walls, big index number and name painted on the wall, a hatch in the back wall |
 | Workload (Deployment, StatefulSet, DaemonSet, Job, bare Pod) | A hazard striped pad with a tilted name sign (like the "APPLICATION" crate pen) |
 | Pod | A machine/station standing on its workload pad, body height by container count, color by status, lamp on top |
-| Service | A gate arch near the front of the room |
-| Flow inside a namespace | A parcel riding a conveyor belt (red rollers on pillars) between two stations |
+| Service | A tall gate arch near the front of the room, service traffic rides through it |
+| Flow inside a namespace | A parcel riding the room's belt network (red rollers on pillars) between two stations |
 | Flow leaving/entering a namespace | Parcel rides a belt to the back wall hatch, then a translucent tube to another room or portal |
 | `reserved:world` | Floating low poly globe ("Internet") |
 | `reserved:host`, kube-apiserver, remote nodes | Floating server rack ("Node / Host") |
@@ -55,7 +55,7 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 ### Backend (`server/`, plain Node, zero dependencies)
 
 - `config.js`: optional namespace allowlist (`NAMESPACES`, empty means all), port, kubectl binary and context via env vars.
-- `kubectl.js`: run commands, stream lines, supervise long running streams with backoff restart.
+- `kubectl.js`: run commands, stream lines, supervise long running streams with backoff restart, remote stdin watchdog so streams end inside the pod when kubectl goes away.
 - `topology.js`: one `kubectl get ... -A` call plus `kubectl get namespaces`, grouped per namespace, resolve pod to workload via owner references, match service selectors.
 - `hubble.js`: one `hubble observe --follow -o json` per cilium agent pod (multi node ready), `--all-namespaces` or per namespace filters, normalize endpoints (pod, namespace, world, host), coalesce into batches keyed by src/dst/proto/port/verdict.
 - `tetragon.js`: one `tetra getevents -o json` per tetragon pod, normalize exec/exit/kprobe events, batch.
@@ -65,11 +65,11 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ### Frontend (`src/`, Vite + three.js)
 
-- `core/`: `Stage` (renderer, lights, camera following shadow map, loop), `CameraRig` (orbit + WASD/QE/RF flight + animated focus), `Picker` (hover/click/double click raycasting), `LightPool` (fixed set of warm room lamps that follow the camera, so the shader light count stays constant).
+- `core/`: `Stage` (renderer, lights, camera following shadow map, loop), `CameraRig` (orbit + WASD/QE/RF flight + animated focus), `Picker` (hover/click/double click raycasting), `Highlighter` (hover and selection rings), `LightPool` (fixed set of warm room lamps that follow the camera, so the shader light count stays constant).
 - `theme/`: palette, cached materials, canvas textures (labels, hazard stripes).
-- `objects/`: reusable primitives and scene props: `NamespaceRoom`, `WorkloadPad`, `PodStation`, `ServiceGate`, `Conveyor`, `Tube`, `Portal`.
+- `objects/`: reusable primitives and scene props: `NamespaceRoom`, `BeltNetwork`, `WorkloadPad`, `PodStation`, `ServiceGate`, `Conveyor`, `Tube`, `Portal`.
 - `scene/ClusterWorld`: incremental room updates (only changed namespaces rebuild), grid campus layout, portal slots, resolves flow endpoints to 3D anchors, describes picked objects.
-- `traffic/`: `PackageSystem` (pooled parcels moving along curve paths), `TrafficSystem` (routes flows to belts and tubes, lazily builds and garbage collects them), `ProcessFx` (Tetragon effects).
+- `traffic/`: `RoutePath` (legs and progress remapping), `PackageSystem` (instanced parcels), `TrafficSystem` (routes, tubes, flow history, targeted updates), `ProcessFx` (Tetragon effects).
 - `data/`: `EventStream` (SSE client), `Selection` (visible namespaces, persisted in localStorage as a hidden list so new namespaces show up by default).
 - `ui/`: `Hud` (status chips, live stats, event log, details panel, tooltip, namespace pill), `NamespacePanel` (toggle list, presets, search, activity dots).
 
@@ -96,45 +96,38 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ## Status (TL;DR)
 
-**Works today:** all 30 namespaces / 65 pods of the cluster as a live campus, real Hubble flows as parcels on belts and tubes, Tetragon exec/kprobe events as lamp flashes and labels, namespace toggling with persistence, fly/orbit navigation, details on click, headless screenshot tooling.
+**Works today:** all namespaces as a live campus, real Hubble flows as parcels on belts and tubes, Tetragon events as lamp flashes and labels, namespace toggling that keeps traffic state, gates that carry service traffic, pod lifecycle animations, wall cutaway, hover and selection rings.
 
 **Missing / rough:**
 
-- Performance headroom: at ~600 flows/s the parcel pool (700) saturates; every block is its own mesh (~1000+ draw calls). Needs instancing and per edge aggregation.
 - No semantic zoom yet: full detail is rendered at every distance.
-- Tubes and belts are straight/arc geometry without collision avoidance: belts clip machines, tubes pass through rooms in front rows, walls can block the camera.
-- Services are decorative: traffic does not route through the gate yet.
+- Static machine parts are still separate meshes (~1000+ draw calls with all namespaces). Real GPU frame rates are unmeasured, the headless renderer is software only.
+- Tubes arc over rooms, but can still pass through tall walls at long range.
 - No grouping of namespaces (labels, Flux kustomization), order is alphabetical.
 - Server streams everything to the browser; selection is client side only.
 - No policies, no L7 details, no alerts, no pause/replay.
 - Multi node untested (streams are per agent pod, but there is no node layer).
 
-## Phase 2: Make it feel alive
+## Phase 2: Make it feel alive (done)
 
-### Keep traffic state when toggling namespaces
-
-Problem: toggling a namespace changes the campus layout, which bumps `world.version`, and `TrafficSystem.reset()` then throws away every parcel, belt, tube and cached route. The SSE stream keeps running, but the scene visibly starts from scratch. Goal: only touch what the toggle actually affects.
-
-- Room local traffic: make conveyors and in-room path segments children of their `NamespaceRoom` (room local coordinates), so moving a room moves its belts and parcels with it and nothing has to be rebuilt.
-- Smooth relayout: tween rooms from their old to their new grid slot instead of teleporting, new rooms rise out of the floor, removed rooms sink away.
-- Targeted invalidation: on toggle, drop only routes and tubes that touch the toggled namespace (and tubes whose endpoints moved), reuse `TrafficSystem.invalidate()` instead of `reset()`.
-- Tubes follow their endpoints: rebuild a tube's curve only when one of its two anchors moved, and re-path in-flight parcels by keeping their progress `u` on the new curve instead of killing them.
-- Ghost portals: when a namespace is hidden, migrate its in-flight parcels to the new ghost portal route instead of dropping them; when it is shown again, the portal fades out and its routes switch to the room.
-- Short flow history: keep a small per-edge ring buffer (last ~30s of aggregated counts) so a newly enabled namespace immediately gets its belts and a few parcels, instead of looking idle until new flows arrive.
-- Performance: no full scene traversal on toggle, work is proportional to the affected namespaces and edges; batch layout changes to one per animation frame; keep geometry and materials shared so a toggle allocates as little as possible.
-
-- Animated rollers / belt texture scroll, parcels bunching at the hatch, small bounce on arrival.
-- Route flows to Services through the gate using Hubble `destination_service`.
-- Belt routing that avoids stations (orthogonal belts with corner pieces, multiple belt heights).
-- Hover highlighting (outline or emissive lift), selection ring.
-- Fade or cut away walls that block the camera.
-- Pod lifecycle animations: stations rising out of the floor on create, sinking on delete, shaking on restart.
+- [x] Toggling keeps traffic state: routes are legs in room local coordinates, only routes touching a toggled namespace are rebuilt, in-flight parcels keep their progress (`remapProgress` maps shared prefix, suffix and the changed middle).
+- [x] Smooth relayout: rooms and portals tween to their new slot, new rooms rise, removed rooms sink, ghost portals pop in and out, freed portal slots are reused.
+- [x] Tubes morph to moved endpoints (GPU morph target plus lerped curve control points, so parcels stay inside).
+- [x] Flow history: 30 one second buckets per edge seed belts and parcels when a namespace is enabled.
+- [x] Instanced parcels (120 triangles each), capacity 3000, transit time capped at 6s, spawn rate limited per route.
+- [x] Rolling rollers (one shared texture offset), parcels slow down and bunch at the hatch, pop in on spawn.
+- [x] Service gates carry traffic. Hubble almost never sets `destination_service` (2 of 1500 sampled flows, all `SOCK` traces, now ignored), so the gate is inferred from destination pod and service `targetPort`. Node probes and replies skip the gate.
+- [x] Belt network per room: trunk along the back wall, columns in the aisles between machines, a front lane behind the gates, junction blocks at turns, lanes grow on demand, pillars avoid machines, signs and gates. Crossings stay on one height, multiple belt heights were not needed.
+- [x] Hover and selection rings.
+- [x] Wall cutaway: walls drop to a stub when the camera is behind them or they block the view of the camera target.
+- [x] Pod lifecycle: machines rise through the floor on create, sink on delete, shake on restart, glide to a new slot.
+- [x] Stream cleanup: `kubectl exec` without a TTY leaves the remote process running, so remote commands now run under a stdin watchdog (`execStream`) that ends them when kubectl goes away, and the server stops its children on exit.
 
 ## Phase 3: Scale and structure
 
 - Group rooms into districts by label or Flux kustomization, district labels on the ground.
 - Semantic zoom/LOD: aggregate traffic at cluster level (one fat parcel per edge per second), detail only for rooms near the camera.
-- `InstancedMesh` for parcels, rollers and repeated machine parts, pooled labels, frustum based throttling.
+- `InstancedMesh` for repeated machine parts (parcels and rollers are done), pooled labels, frustum based throttling.
 - Server side selection: the client sends its visible namespaces, the hub only forwards relevant flows and restarts Hubble with matching filters.
 - Saved views (named selections + camera bookmarks) in addition to the presets.
 - Nodes as a lower layer ("basement") showing pod placement for multi node clusters.

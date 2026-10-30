@@ -1,150 +1,235 @@
-import * as THREE from 'three'
-import { Conveyor } from '../objects/Conveyor.js'
 import { Tube } from '../objects/Tube.js'
 import { HATCH } from '../objects/NamespaceRoom.js'
 import { disposeTree } from '../objects/primitives.js'
 import { palette } from '../theme/palette.js'
+import { RoutePath, lineLeg, tubeLeg, remapProgress } from './RoutePath.js'
 
 const IDLE_MS = 120000
 const SWEEP_MS = 5000
+const HISTORY_SECONDS = 30
+const MIN_SPAWN_GAP_MS = 120
+const HATCH_PACE = 0.45
+const MAX_SEED_PARCELS = 160
 
 export class TrafficSystem {
   constructor(world, root, packages) {
     this.world = world
     this.root = root
     this.packages = packages
-    this.conveyors = new Map()
     this.tubes = new Map()
     this.routes = new Map()
-    this.version = world.version
+    this.history = new Map()
+    this.moving = new Set()
     this.counter = 0
     this.lastSweep = 0
     this.activity = new Map()
   }
 
-  reset() {
-    for (const part of [...this.conveyors.values(), ...this.tubes.values()]) {
-      this.root.remove(part.object)
-      disposeTree(part.object)
+  applyChange({ layoutChanged, changed, entered, left }) {
+    const affected = new Set([...changed, ...entered, ...left])
+    const remaps = new Map()
+
+    for (const [key, route] of this.routes) {
+      if (!route.namespaces.some(ns => affected.has(ns))) continue
+      const previous = route.path
+      const next = this.buildPath(route.flow)
+      if (!next) {
+        remaps.set(route, { vanish: true })
+        this.routes.delete(key)
+        continue
+      }
+      route.path = next.path
+      route.parts = next.parts
+      route.onArrive = next.onArrive
+      remaps.set(route, { map: u => remapProgress(previous, next.path, u) })
     }
-    this.conveyors.clear()
-    this.tubes.clear()
-    this.routes.clear()
-    this.packages.clear()
-    this.version = this.world.version
+
+    if (layoutChanged) this.retargetTubes()
+    this.packages.retarget(remaps)
+    this.dropUnusedTubes()
+    this.seed(entered)
   }
 
-  invalidate(namespaces) {
+  retargetTubes() {
+    for (const [key, part] of this.tubes) {
+      const tube = part.object
+      const a = this.world.anchor(tube.startId)
+      const b = this.world.anchor(tube.endId)
+      if (!a || !b) continue
+      if (!tube.retarget(a, b)) continue
+      this.moving.add(tube)
+      this.remeasure(key)
+    }
+  }
+
+  remeasure(tubeKey) {
+    const part = this.tubes.get(tubeKey)
+    for (const route of this.routes.values()) {
+      if (route.parts.includes(part)) route.path.measure()
+    }
+  }
+
+  dropUnusedTubes() {
+    const used = new Set()
+    for (const route of this.routes.values()) route.parts.forEach(part => used.add(part))
+    for (const [key, part] of this.tubes) {
+      const tube = part.object
+      if (used.has(part) && this.world.anchor(tube.startId) && this.world.anchor(tube.endId)) continue
+      this.moving.delete(tube)
+      this.root.remove(tube)
+      disposeTree(tube)
+      this.tubes.delete(key)
+    }
+  }
+
+  seed(namespaces) {
     if (!namespaces.length) return
-    const affected = new Set(namespaces)
-    for (const [key, part] of this.conveyors) {
-      if (!affected.has(key.slice(0, key.indexOf(':')))) continue
-      this.root.remove(part.object)
-      disposeTree(part.object)
-      this.conveyors.delete(key)
+    const entered = new Set(namespaces)
+    const now = performance.now()
+    let budget = MAX_SEED_PARCELS
+    for (const edge of this.history.values()) {
+      if (budget <= 0) break
+      if (now - edge.last > HISTORY_SECONDS * 1000) continue
+      if (!entered.has(edge.flow.src.ns) && !entered.has(edge.flow.dst.ns)) continue
+      const route = this.route(edge.flow, now)
+      if (!route) continue
+      const total = edge.buckets.reduce((sum, n) => sum + n, 0)
+      const n = Math.min(3, Math.ceil(total / HISTORY_SECONDS) + 1)
+      this.spawn(route, edge.flow, n, now)
+      budget -= n
     }
-    for (const [key, route] of this.routes) {
-      if (!route || route.rooms.some(ns => affected.has(ns))) this.routes.delete(key)
+  }
+
+  record(flow, key, now) {
+    const second = Math.floor(now / 1000)
+    let edge = this.history.get(key)
+    if (!edge) {
+      edge = { flow, last: now, second, buckets: new Uint32Array(HISTORY_SECONDS) }
+      this.history.set(key, edge)
     }
+    const gap = second - edge.second
+    if (gap >= HISTORY_SECONDS) edge.buckets.fill(0)
+    else for (let i = 1; i <= gap; i++) edge.buckets[(edge.second + i) % HISTORY_SECONDS] = 0
+    edge.second = second
+    edge.flow = flow
+    edge.last = now
+    edge.buckets[second % HISTORY_SECONDS] += flow.count
   }
 
   handle(flows) {
-    if (this.version !== this.world.version) this.reset()
     const now = performance.now()
     for (const flow of flows) {
       this.counter += flow.count
       if (flow.src.ns) this.activity.set(flow.src.ns, now)
       if (flow.dst.ns) this.activity.set(flow.dst.ns, now)
-      const route = this.route(flow)
+      this.record(flow, this.keyOf(flow), now)
+      const route = this.route(flow, now)
       if (!route) continue
-      route.parts.forEach(part => (part.lastUsed = now))
-      const color = flow.verdict === 'DROPPED' ? palette.dropped : palette.parcels[flow.l7] ?? palette.parcels[flow.proto] ?? palette.parcels.other
-      const n = flow.reply ? 1 : Math.min(flow.count, 3)
-      for (let i = 0; i < n; i++) {
-        this.packages.spawn(route.path, {
-          color,
-          scale: flow.reply ? 0.65 : 1,
-          dropped: flow.verdict === 'DROPPED',
-          speed: flow.reply ? 11 : 9,
-          delay: i * 0.16 + Math.random() * 0.12,
-          onArrive: route.onArrive
-        })
-      }
+      if (now - route.lastSpawn < MIN_SPAWN_GAP_MS) continue
+      this.spawn(route, flow, flow.reply ? 1 : Math.min(flow.count, 3), now)
     }
   }
 
-  route(flow) {
-    const key = `${flow.srcId}>${flow.dstId}`
-    if (this.routes.has(key)) return this.routes.get(key)
-    const route = this.build(flow)
+  spawn(route, flow, n, now) {
+    route.lastUsed = now
+    route.lastSpawn = now
+    route.parts.forEach(part => (part.lastUsed = now))
+    const dropped = flow.verdict === 'DROPPED'
+    const color = dropped ? palette.dropped : palette.parcels[flow.l7] ?? palette.parcels[flow.proto] ?? palette.parcels.other
+    for (let i = 0; i < n; i++) {
+      this.packages.spawn(route, {
+        color,
+        dropped,
+        scale: flow.reply ? 0.65 : 1,
+        speed: flow.reply ? 11 : 9,
+        delay: i * 0.16 + Math.random() * 0.12
+      })
+    }
+  }
+
+  gateFor(flow) {
+    if (flow.reply || flow.dst.kind !== 'pod' || flow.src.kind === 'host') return null
+    return this.world.rooms.get(flow.dst.ns)?.serviceFor(flow.dst.name, flow.port) ?? null
+  }
+
+  keyOf(flow) {
+    return `${flow.srcId}>${flow.dstId}>${this.gateFor(flow) ?? ''}`
+  }
+
+  route(flow, now) {
+    const key = this.keyOf(flow)
+    let route = this.routes.get(key)
+    if (route) return route
+    const built = this.buildPath(flow)
+    if (!built) return null
+    route = { ...built, flow, lastUsed: now, lastSpawn: 0, namespaces: [flow.src.ns, flow.dst.ns].filter(Boolean) }
     this.routes.set(key, route)
     return route
   }
 
-  build(flow) {
-    if (!this.world.rooms.has(flow.src.ns) && !this.world.rooms.has(flow.dst.ns)) return null
-    const a = this.world.locate(flow.src)
-    const b = this.world.locate(flow.dst)
-    const path = new THREE.CurvePath()
+  buildPath(flow) {
+    const { world } = this
+    if (!world.rooms.has(flow.src.ns) && !world.rooms.has(flow.dst.ns)) return null
+    const a = world.locate(flow.src)
+    const b = world.locate(flow.dst)
+    const legs = []
     const parts = []
+    const gate = this.gateFor(flow)
 
     if (a.room && a.room === b.room) {
       const from = a.pod ?? HATCH
       const to = b.pod ?? HATCH
       if (from === to) return null
-      this.belt(path, parts, a.room, from, to)
+      this.inRoom(legs, parts, a.room, from, to, gate)
     } else {
-      if (a.portal && b.portal) return null
       if (a.room) {
-        if (a.pod) this.belt(path, parts, a.room, a.pod, HATCH)
-        line(path, a.room.portWorld(HATCH), a.room.hatchOutside())
+        if (a.pod) this.inRoom(legs, parts, a.room, a.pod, HATCH)
+        legs.push(lineLeg(a.room, a.room.portLocal(HATCH), a.room.hatchOutsideLocal(), HATCH_PACE))
       }
-      const startId = a.room ? `room:${a.room.namespace}` : a.portal.portalId
-      const endId = b.room ? `room:${b.room.namespace}` : b.portal.portalId
-      const start = a.room ? a.room.hatchOutside() : a.portal.anchor()
-      const end = b.room ? b.room.hatchOutside() : b.portal.anchor()
-      this.tube(path, parts, startId, endId, start, end)
+      this.tube(legs, parts, a, b)
       if (b.room) {
-        line(path, b.room.hatchOutside(), b.room.portWorld(HATCH))
-        if (b.pod) this.belt(path, parts, b.room, HATCH, b.pod)
+        legs.push(lineLeg(b.room, b.room.hatchOutsideLocal(), b.room.portLocal(HATCH), HATCH_PACE))
+        if (b.pod) this.inRoom(legs, parts, b.room, HATCH, b.pod, gate)
       }
     }
 
-    if (!path.curves.length) return null
+    if (!legs.length) return null
     const station = b.room && b.pod ? b.room.stations.get(b.pod) : null
     const portal = b.portal ?? null
-    const rooms = [a.room?.namespace, b.room?.namespace].filter(Boolean)
-    return { path, parts, rooms, onArrive: () => (station ? station.receive() : portal?.pulse()) }
+    return { path: new RoutePath(legs), parts, onArrive: () => (station ? station.receive() : portal?.pulse()) }
   }
 
-  belt(path, parts, room, from, to) {
-    const p0 = room.portWorld(from)
-    const p1 = room.beltWorld(from)
-    const p2 = room.beltWorld(to)
-    const p3 = room.portWorld(to)
-    line(path, p0, p1)
-    line(path, p1, p2)
-    line(path, p2, p3)
-    const key = `${room.namespace}:${[from, to].sort().join('|')}`
-    let part = this.conveyors.get(key)
-    if (!part) {
-      part = { object: new Conveyor(p1, p2), lastUsed: 0 }
-      this.root.add(part.object)
-      this.conveyors.set(key, part)
+  inRoom(legs, parts, room, from, to, gateName = null) {
+    const gate = gateName ? room.gates.get(gateName) : null
+    const target = gate ? { x: gate.position.x, z: room.gateLaneZ } : null
+    const plan = room.belts.plan(from, to, target)
+    parts.push(...plan.parts)
+
+    const start = room.portLocal(from)
+    const end = room.portLocal(to)
+    if (start.distanceToSquared(plan.path[0]) > 1e-4) legs.push(lineLeg(room, start, plan.path[0]))
+    for (let i = 1; i < plan.path.length; i++) {
+      const leg = lineLeg(room, plan.path[i - 1], plan.path[i])
+      if (i === plan.gateIndex) leg.onEnter = () => gate.pulse()
+      legs.push(leg)
     }
-    parts.push(part)
+    const last = plan.path[plan.path.length - 1]
+    if (end.distanceToSquared(last) > 1e-4) legs.push(lineLeg(room, last, end))
   }
 
-  tube(path, parts, startId, endId, start, end) {
+  tube(legs, parts, a, b) {
+    const startId = a.room ? `room:${a.room.namespace}` : a.portal.portalId
+    const endId = b.room ? `room:${b.room.namespace}` : b.portal.portalId
     const forward = startId < endId
     const key = forward ? `${startId}|${endId}` : `${endId}|${startId}`
     let part = this.tubes.get(key)
     if (!part) {
-      part = { object: forward ? new Tube(start, end) : new Tube(end, start), lastUsed: 0 }
+      const [first, second] = forward ? [startId, endId] : [endId, startId]
+      part = { object: new Tube(this.world.anchor(first), this.world.anchor(second), first, second), lastUsed: performance.now() }
       this.root.add(part.object)
       this.tubes.set(key, part)
     }
-    path.add(forward ? part.object.curve : part.object.reverse)
+    legs.push(tubeLeg(part.object, key, !forward))
     parts.push(part)
   }
 
@@ -154,27 +239,27 @@ export class TrafficSystem {
   }
 
   tick() {
+    if (this.moving.size) {
+      const k = this.world.moveK
+      for (const tube of this.moving) tube.advance(k)
+      if (k >= 1) this.moving.clear()
+    }
+
     const now = performance.now()
     if (now - this.lastSweep < SWEEP_MS) return
     this.lastSweep = now
-    let removed = false
-    for (const map of [this.conveyors, this.tubes]) {
-      for (const [key, part] of map) {
-        if (now - part.lastUsed < IDLE_MS) continue
-        this.root.remove(part.object)
-        disposeTree(part.object)
-        map.delete(key)
-        removed = true
-      }
-    }
-    if (removed) {
-      this.routes.clear()
-      this.packages.clear()
-    }
+    this.sweep(now)
   }
-}
 
-function line(path, a, b) {
-  if (a.distanceToSquared(b) < 0.0001) return
-  path.add(new THREE.LineCurve3(a.clone(), b.clone()))
+  sweep(now) {
+    for (const [key, route] of this.routes) {
+      if (now - route.lastUsed > IDLE_MS) this.routes.delete(key)
+    }
+    for (const [key, edge] of this.history) {
+      if (now - edge.last > HISTORY_SECONDS * 1000) this.history.delete(key)
+    }
+    this.dropUnusedTubes()
+    for (const room of this.world.order) room.belts.prune(now, IDLE_MS)
+    this.world.prunePortals(new Set([...this.tubes.values()].flatMap(part => [part.object.startId, part.object.endId])))
+  }
 }

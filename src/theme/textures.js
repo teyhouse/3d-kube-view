@@ -58,6 +58,21 @@ function hazardCanvas() {
   return canvas
 }
 
+export function rollerTexture() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 8
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = palette.rollerBase
+  ctx.fillRect(0, 0, 64, 8)
+  ctx.fillStyle = palette.rollerStripe
+  ctx.fillRect(0, 0, 10, 8)
+  ctx.fillRect(32, 0, 10, 8)
+  const texture = toTexture(canvas)
+  texture.wrapS = THREE.RepeatWrapping
+  return texture
+}
+
 export function hazardMaterial(repeatX = 1, repeatY = 1) {
   const rx = Math.max(1, Math.round(repeatX))
   const ry = Math.max(1, Math.round(repeatY))

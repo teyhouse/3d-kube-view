@@ -30,7 +30,7 @@ export class ProcessFx {
       sprite.scale.set(0.75 * aspect, 0.75, 1)
       sprite.position.copy(room.portWorld(event.pod)).add(new THREE.Vector3((Math.random() - 0.5) * 0.8, 0.7, (Math.random() - 0.5) * 0.8))
       this.root.add(sprite)
-      this.sprites.push({ sprite, life: 0 })
+      this.sprites.push({ sprite, life: 0, ns: event.ns })
     }
   }
 
@@ -51,6 +51,14 @@ export class ProcessFx {
     }
     this.textures.set(key, entry)
     return entry
+  }
+
+  forget(namespaces) {
+    if (!namespaces.length) return
+    const gone = new Set(namespaces)
+    for (const s of this.sprites) {
+      if (gone.has(s.ns)) s.life = LIFE
+    }
   }
 
   tick(dt) {

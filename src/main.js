@@ -7,6 +7,8 @@ import { Stage } from './core/Stage.js'
 import { CameraRig } from './core/CameraRig.js'
 import { Picker } from './core/Picker.js'
 import { LightPool } from './core/LightPool.js'
+import { Highlighter } from './core/Highlighter.js'
+import { tickRollers } from './objects/Conveyor.js'
 import { ClusterWorld } from './scene/ClusterWorld.js'
 import { PackageSystem } from './traffic/PackageSystem.js'
 import { TrafficSystem } from './traffic/TrafficSystem.js'
@@ -27,7 +29,7 @@ function boot() {
   const lights = new LightPool(stage.scene)
   const world = new ClusterWorld()
   const trafficRoot = new THREE.Group()
-  stage.scene.add(world.root, trafficRoot)
+  stage.scene.add(world.root, world.exitRoot, trafficRoot)
 
   const packages = new PackageSystem(trafficRoot)
   const traffic = new TrafficSystem(world, trafficRoot, packages)
@@ -36,6 +38,7 @@ function boot() {
   const panel = new NamespacePanel(hud.namespaceRoot)
   const selection = new Selection()
   const picker = new Picker(stage.camera, stage.renderer.domElement, world.root)
+  const highlighter = new Highlighter()
 
   let topology = null
   let focus = -1
@@ -64,9 +67,9 @@ function boot() {
     if (!topology) return
     const entries = topology.namespaces.map((data, index) => ({ data, index })).filter(e => selection.isVisible(e.data.name))
     const focused = world.order[focus]?.namespace
-    const { layoutChanged, changed } = world.setTopology(entries)
-    if (layoutChanged) traffic.reset()
-    else traffic.invalidate(changed)
+    const change = world.setTopology(entries, { animate: framed })
+    traffic.applyChange(change)
+    fx.forget(change.left)
     panel.setNamespaces(topology.namespaces, name => selection.isVisible(name))
 
     focus = world.order.findIndex(r => r.namespace === focused)
@@ -74,8 +77,8 @@ function boot() {
     if (!framed && world.order.length) {
       framed = true
       rig.frame(world.roomsBounds(), { instant: true })
-    } else if (reframe && focus < 0) {
-      rig.frame(world.roomsBounds())
+    } else if (reframe) {
+      rig.frame(focus < 0 ? world.roomsBounds() : world.order[focus].bounds(), { tightness: focus < 0 ? 0.85 : 0.75 })
     }
   }
 
@@ -100,9 +103,13 @@ function boot() {
 
   picker.onHover = (info, pos) => {
     stage.renderer.domElement.style.cursor = info ? 'pointer' : ''
+    highlighter.hover(info?.object ?? null)
     hud.showTooltip(info && `${info.type}: ${info.name ?? info.id}`, pos?.x, pos?.y)
   }
-  picker.onSelect = info => hud.showDetails(world.describe(info))
+  picker.onSelect = info => {
+    highlighter.select(info?.object ?? null)
+    hud.showDetails(world.describe(info))
+  }
   picker.onFocus = info => {
     if (!info) return
     if (info.type === 'namespace') return focusNamespace(info.id)
@@ -114,6 +121,7 @@ function boot() {
     if (e.target instanceof HTMLInputElement) return
     if (e.code === 'Escape') {
       hud.showDetails(null)
+      highlighter.select(null)
       focusRoom(-1)
     }
     const digit = /^Digit([1-9])$/.exec(e.code)
@@ -160,9 +168,12 @@ function boot() {
     picker.update()
     lights.update(dt, world.order, rig.controls.target)
     stage.followShadow(rig.controls.target, rig.distance)
+    world.updateCutaway(dt, stage.camera.position, rig.controls.target)
     world.tick(dt, time)
-    packages.tick(dt)
     traffic.tick()
+    tickRollers(dt)
+    highlighter.tick(time)
+    packages.tick(dt)
     fx.tick(dt)
     statsTime += dt
     if (statsTime >= 1) {

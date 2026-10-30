@@ -6,6 +6,12 @@ import { disposeTree } from '../objects/primitives.js'
 const ROOM_GAP = 14
 const PORTAL_SPACING = 15
 const PORTALS_PER_ROW = 9
+const MOVE_TIME = 0.9
+const EXIT_TIME = 0.6
+const ENTER_DEPTH = -22
+const CUTAWAY_INTERVAL = 0.2
+
+const ease = t => t * t * (3 - 2 * t)
 
 export class ClusterWorld {
   constructor() {
@@ -15,12 +21,20 @@ export class ClusterWorld {
     this.portals = new Map()
     this.slots = 0
     this.backZ = -45
-    this.version = 0
+    this.freeSlots = []
+    this.exitRoot = new THREE.Group()
+    this.exits = []
+    this.moveT = 1
+    this.moveK = 1
+    this.ray = new THREE.Ray()
+    this.cutawayTime = CUTAWAY_INTERVAL
   }
 
-  setTopology(entries) {
+  setTopology(entries, { animate = true } = {}) {
     const next = new Map()
     const changed = []
+    const entered = []
+    const left = []
     let layoutChanged = entries.length !== this.order.length || entries.some((e, i) => this.order[i]?.namespace !== e.data.name)
 
     for (const { data, index } of entries) {
@@ -35,9 +49,17 @@ export class ClusterWorld {
       if (current) {
         if (current.width !== room.width || current.depth !== room.depth) layoutChanged = true
         room.position.copy(current.position)
+        room.scale.copy(current.scale)
+        room.home.copy(current.home)
+        room.from.copy(current.from)
+        room.fromScale = current.fromScale
+        room.fresh = false
+        room.inherit(current)
         this.root.remove(current)
         disposeTree(current)
         changed.push(data.name)
+      } else {
+        entered.push(data.name)
       }
       next.set(data.name, room)
       this.root.add(room)
@@ -45,28 +67,22 @@ export class ClusterWorld {
 
     for (const [name, room] of this.rooms) {
       if (next.has(name)) continue
-      this.root.remove(room)
-      disposeTree(room)
+      left.push(name)
+      this.exit(room, animate)
     }
 
     this.rooms = next
     this.order = entries.map(e => next.get(e.data.name))
 
     for (const [id, portal] of this.portals) {
-      if (!portal.ns || !this.rooms.has(portal.ns)) continue
-      this.root.remove(portal)
-      disposeTree(portal)
-      this.portals.delete(id)
+      if (portal.ns && this.rooms.has(portal.ns)) this.removePortal(id, animate)
     }
 
-    if (layoutChanged) {
-      this.layout()
-      this.version++
-    }
-    return { layoutChanged, changed }
+    if (layoutChanged) this.layout(animate)
+    return { layoutChanged, changed, entered, left }
   }
 
-  layout() {
+  layout(animate) {
     const cols = Math.max(1, Math.ceil(Math.sqrt(this.order.length)))
     const rows = []
     for (let i = 0; i < this.order.length; i += cols) rows.push(this.order.slice(i, i + cols))
@@ -77,16 +93,46 @@ export class ClusterWorld {
       const width = row.reduce((sum, r) => sum + r.width, 0) + ROOM_GAP * (row.length - 1)
       let x = -width / 2
       for (const room of row) {
-        room.position.set(x + room.width / 2, 0, z + room.depth / 2)
+        room.home.set(x + room.width / 2, 0, z + room.depth / 2)
         x += room.width + ROOM_GAP
       }
       z += depth + ROOM_GAP
     }
     const offset = Math.max(0, z - ROOM_GAP) / 2
-    for (const room of this.order) room.position.z -= offset
-
+    for (const room of this.order) room.home.z -= offset
     this.backZ = -Math.max(offset, 11) - 30
-    for (const portal of this.portals.values()) portal.position.copy(this.slotPosition(portal.slot))
+
+    for (const room of this.order) {
+      if (room.fresh) {
+        room.position.copy(room.home)
+        if (animate) {
+          room.position.y = ENTER_DEPTH
+          room.scale.setScalar(0.01)
+        }
+        room.fresh = false
+      }
+      room.from.copy(room.position)
+      room.fromScale = room.scale.x
+      if (!animate) room.position.copy(room.home)
+    }
+    for (const portal of this.portals.values()) {
+      portal.home.copy(this.slotPosition(portal.slot))
+      portal.from.copy(portal.position)
+      if (!animate) portal.position.copy(portal.home)
+    }
+
+    this.moveT = animate ? 0 : 1
+    this.moveK = animate ? 0 : 1
+  }
+
+  exit(object, animate = true) {
+    if (!animate) {
+      object.parent?.remove(object)
+      disposeTree(object)
+      return
+    }
+    this.exitRoot.add(object)
+    this.exits.push({ object, t: 0 })
   }
 
   slotPosition(slot) {
@@ -99,12 +145,33 @@ export class ClusterWorld {
     let portal = this.portals.get(id)
     if (!portal) {
       portal = new Portal(id, kind, name)
-      portal.slot = this.slots++
-      portal.position.copy(this.slotPosition(portal.slot))
+      portal.slot = this.freeSlots.length ? this.freeSlots.sort((a, b) => a - b).shift() : this.slots++
+      portal.home.copy(this.slotPosition(portal.slot))
+      portal.from.copy(portal.home)
+      portal.position.copy(portal.home)
       this.portals.set(id, portal)
       this.root.add(portal)
     }
     return portal
+  }
+
+  removePortal(id, animate = true) {
+    const portal = this.portals.get(id)
+    if (!portal) return
+    this.portals.delete(id)
+    this.freeSlots.push(portal.slot)
+    this.exit(portal, animate)
+  }
+
+  prunePortals(used) {
+    for (const id of this.portals.keys()) {
+      if (!used.has(id)) this.removePortal(id)
+    }
+  }
+
+  anchor(id) {
+    if (id.startsWith('room:')) return this.rooms.get(id.slice(5))?.hatchHome() ?? null
+    return this.portals.get(id)?.home.clone() ?? null
   }
 
   locate(ep) {
@@ -126,7 +193,7 @@ export class ClusterWorld {
 
   bounds() {
     const box = this.roomsBounds()
-    for (const portal of this.portals.values()) box.expandByPoint(portal.position)
+    for (const portal of this.portals.values()) box.expandByPoint(portal.home)
     return box
   }
 
@@ -184,7 +251,38 @@ export class ClusterWorld {
     return null
   }
 
+  updateCutaway(dt, camera, target) {
+    this.cutawayTime += dt
+    if (this.cutawayTime < CUTAWAY_INTERVAL) return
+    this.cutawayTime = 0
+    this.ray.origin.copy(camera)
+    this.ray.direction.subVectors(target, camera).normalize()
+    const distance = camera.distanceTo(target)
+    for (const room of this.order) room.updateCutaway(camera, this.ray, distance)
+  }
+
   tick(dt, time) {
+    if (this.moveT < 1) {
+      this.moveT = Math.min(1, this.moveT + dt / MOVE_TIME)
+      this.moveK = ease(this.moveT)
+      for (const room of this.order) {
+        room.position.lerpVectors(room.from, room.home, this.moveK)
+        room.scale.setScalar(THREE.MathUtils.lerp(room.fromScale, 1, this.moveK))
+      }
+      for (const portal of this.portals.values()) portal.position.lerpVectors(portal.from, portal.home, this.moveK)
+    }
+
+    for (let i = this.exits.length - 1; i >= 0; i--) {
+      const exit = this.exits[i]
+      exit.t = Math.min(1, exit.t + dt / EXIT_TIME)
+      exit.object.scale.setScalar(Math.max(0.001, 1 - ease(exit.t)))
+      exit.object.position.y -= dt * 12
+      if (exit.t < 1) continue
+      this.exitRoot.remove(exit.object)
+      disposeTree(exit.object)
+      this.exits.splice(i, 1)
+    }
+
     for (const room of this.order) room.tick(dt)
     for (const portal of this.portals.values()) portal.tick(dt, time)
   }

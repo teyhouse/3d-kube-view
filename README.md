@@ -12,8 +12,8 @@ A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Names
 | --- | --- |
 | Namespace | Diorama room with its number and name on the wall |
 | Workload | Hazard striped pad with a name sign |
-| Pod | Machine with a lamp, color shows status |
-| Service | Gate arch |
+| Pod | Machine with a lamp, color shows status. Rises on create, sinks on delete, shakes on restart |
+| Service | Gate arch, service traffic rides through it |
 | Flow | Parcel on a belt (inside a room) or through a tube (between rooms) |
 | Internet, node/host, hidden namespace | Floating portals |
 | Tetragon exec / kprobe | Lamp flash and floating process name |
@@ -26,7 +26,7 @@ Parcel colors: TCP lime, UDP blue, HTTP pink, ICMP peach, dropped red (falls off
 - `kubectl` with a working context
 - Cilium with Hubble enabled, Tetragon (optional, process events)
 
-All data comes from `kubectl`: `get` for topology, `exec` into the Cilium agents for `hubble observe` and into the Tetragon pods for `tetra getevents`. Nothing is installed into the cluster.
+All data comes from `kubectl`: `get` for topology, `exec` into the Cilium agents for `hubble observe` and into the Tetragon pods for `tetra getevents`. Nothing is installed into the cluster. While the app runs, one `hubble observe` and one `tetra getevents` run per agent pod, and they end when the app stops.
 
 ## Run
 
@@ -51,7 +51,7 @@ KUBE_CONTEXT=my-ctx PORT=9000 ./start.sh
 | `N` | Toggle namespace panel |
 | `Esc` | Back to overview |
 
-The namespace panel lets you show all namespaces or toggle a selection (presets, search, live activity dots). The selection is stored in the browser.
+The namespace panel lets you show all namespaces or toggle a selection (presets, search, live activity dots). The selection is stored in the browser, and toggling keeps the traffic that is already moving.
 
 ## Project layout
 

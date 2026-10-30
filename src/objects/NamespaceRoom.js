@@ -1,8 +1,9 @@
 import * as THREE from 'three'
-import { block, textPlane } from './primitives.js'
+import { block, textPlane, disposeTree } from './primitives.js'
 import { PodStation } from './PodStation.js'
 import { WorkloadPad } from './WorkloadPad.js'
 import { ServiceGate } from './ServiceGate.js'
+import { BeltNetwork } from './BeltNetwork.js'
 import { surface } from '../theme/materials.js'
 import { palette } from '../theme/palette.js'
 
@@ -15,6 +16,15 @@ const MAX_ROW = 26
 const WALL_H = 10
 const WALL_T = 0.8
 const GATE_SPACING = 5.5
+const WALL_CUT = 0.1
+const WALL_SPEED = 7
+const LABEL_MIN = 0.6
+const FOOTPRINT = 1.5
+const AISLE = CELL / 2
+const GATE_LANE = 2
+
+const scratchBox = new THREE.Box3()
+const scratchPoint = new THREE.Vector3()
 
 export class NamespaceRoom extends THREE.Group {
   constructor(data, index) {
@@ -26,6 +36,20 @@ export class NamespaceRoom extends THREE.Group {
     this.pods = new Map(data.pods.map(p => [p.name, p]))
     this.workloads = new Map(data.workloads.map(w => [w.key, w]))
     this.services = new Map(data.services.map(s => [s.name, s]))
+    this.gates = new Map()
+    this.obstacles = []
+    this.leaving = []
+    this.home = new THREE.Vector3()
+    this.from = new THREE.Vector3()
+    this.fromScale = 1
+    this.fresh = true
+    this.beltY = BELT_Y
+    this.serviceIndex = new Map()
+    for (const service of data.services) {
+      for (const pod of service.backends) {
+        for (const port of service.targets ?? []) this.serviceIndex.set(`${pod}:${port}`, service.name)
+      }
+    }
 
     const plan = this.plan()
     this.width = plan.width
@@ -34,6 +58,8 @@ export class NamespaceRoom extends THREE.Group {
 
     this.buildShell()
     this.buildContent(plan)
+    this.belts = new BeltNetwork(this)
+    this.add(this.belts)
     this.userData.pick = { type: 'namespace', id: this.namespace, ns: this.namespace }
   }
 
@@ -81,6 +107,12 @@ export class NamespaceRoom extends THREE.Group {
     const floor = block(W, 3, D, surface(palette.floor), { radius: 0.35, shared: false })
     floor.position.y = -1.5
 
+    this.trunkZ = -D / 2 + WALL_T + 1.2
+    this.gateZ = D / 2 - 3.2
+    this.gateLaneZ = this.gateZ + GATE_LANE
+    this.cutBack = false
+    this.cutLeft = false
+
     const back = block(W, WALL_H, WALL_T, surface(palette.wallDark), { radius: 0.25, shared: false })
     back.position.set(0, WALL_H / 2, -D / 2 + WALL_T / 2)
 
@@ -105,19 +137,29 @@ export class NamespaceRoom extends THREE.Group {
     const hatchHole = block(2.7, 1.9, WALL_T + 0.42, surface(palette.hole, { roughness: 1 }), { radius: 0.2 })
     hatchHole.position.copy(hatchFrame.position)
 
-    this.add(floor, back, left, number, title, sideLabel, trafficLabel, hatchFrame, hatchHole)
+    this.backWall = new THREE.Group()
+    this.backWall.add(back, number, title, trafficLabel)
+    this.leftWall = new THREE.Group()
+    this.leftWall.add(left, sideLabel)
+    this.wallLabels = [[this.backWall, [number, title, trafficLabel]], [this.leftWall, [sideLabel]]]
+    this.backBox = new THREE.Box3(new THREE.Vector3(-W / 2, 0, -D / 2), new THREE.Vector3(W / 2, WALL_H, -D / 2 + WALL_T))
+    this.leftBox = new THREE.Box3(new THREE.Vector3(-W / 2, 0, -D / 2), new THREE.Vector3(-W / 2 + WALL_T, WALL_H + 1.5, D / 2))
+
+    this.add(floor, this.backWall, this.leftWall, hatchFrame, hatchHole)
   }
 
   buildContent({ items }) {
     for (const item of items) {
       const pad = new WorkloadPad(item.workload, item.w, item.d, this.namespace)
       pad.position.set(item.cx, 0, item.cz)
+      this.obstacles.push({ x: item.cx, z: item.cz + item.d / 2 - 0.55, hx: Math.min(item.w - 0.6, 4.4) / 2 + 0.3, hz: 0.5 })
       this.add(pad)
       item.pods.forEach((pod, i) => {
         const col = i % item.cols
         const row = Math.floor(i / item.cols)
         const station = new PodStation({ ...pod, namespace: this.namespace }, shortName(pod, item.workload))
-        station.position.set(item.cx - item.w / 2 + 0.5 + CELL * (col + 0.5), 0.2, item.cz - item.d / 2 + 0.4 + CELL * (row + 0.5))
+        station.place(item.cx - item.w / 2 + 0.5 + CELL * (col + 0.5), 0.2, item.cz - item.d / 2 + 0.4 + CELL * (row + 0.5))
+        this.obstacles.push({ x: station.home.x, z: station.home.z, hx: FOOTPRINT, hz: FOOTPRINT })
         this.add(station)
         this.stations.set(pod.name, station)
       })
@@ -126,27 +168,79 @@ export class NamespaceRoom extends THREE.Group {
     const services = this.data.services
     services.forEach((service, i) => {
       const gate = new ServiceGate(service, this.namespace)
-      gate.position.set((i - (services.length - 1) / 2) * GATE_SPACING, 0, this.depth / 2 - 3.2)
+      gate.position.set((i - (services.length - 1) / 2) * GATE_SPACING, 0, this.gateZ)
+      this.obstacles.push({ x: gate.position.x, z: gate.position.z, hx: 2.5, hz: 0.8 })
+      this.gates.set(service.name, gate)
       this.add(gate)
     })
   }
 
   portLocal(key) {
-    if (key === HATCH) return new THREE.Vector3(this.hatchX, BELT_Y, -this.depth / 2 + WALL_T + 1.2)
+    if (key === HATCH) return new THREE.Vector3(this.hatchX, BELT_Y, this.trunkZ)
     const station = this.stations.get(key)
-    return station.position.clone().setY(station.position.y + station.topY)
+    return station.home.clone().setY(station.home.y + station.topY)
   }
 
   portWorld(key) {
     return this.portLocal(key).add(this.position)
   }
 
-  beltWorld(key) {
-    return this.portWorld(key).setY(BELT_Y)
+  beltPoint(key) {
+    const port = this.portLocal(key)
+    return key === HATCH ? [port.x, port.z] : [port.x + AISLE, port.z]
   }
 
-  hatchOutside() {
-    return new THREE.Vector3(this.hatchX, BELT_Y, -this.depth / 2 - 0.6).add(this.position)
+  hatchOutsideLocal() {
+    return new THREE.Vector3(this.hatchX, BELT_Y, -this.depth / 2 - 0.6)
+  }
+
+  hatchHome() {
+    return this.hatchOutsideLocal().add(this.home)
+  }
+
+  serviceFor(pod, port) {
+    return this.serviceIndex.get(`${pod}:${port}`) ?? null
+  }
+
+  isClear(x, z) {
+    return !this.obstacles.some(o => Math.abs(x - o.x) < o.hx && Math.abs(z - o.z) < o.hz)
+  }
+
+  inherit(previous) {
+    for (const [name, station] of this.stations) {
+      const old = previous.stations.get(name)
+      if (!old) {
+        station.enter()
+        continue
+      }
+      station.glideFrom(old.position)
+      if (this.pods.get(name).restarts > previous.pods.get(name).restarts) station.shake()
+    }
+    for (const [name, station] of previous.stations) {
+      if (this.stations.has(name)) continue
+      this.add(station)
+      station.exit()
+      this.leaving.push(station)
+    }
+    for (const station of previous.leaving) {
+      this.add(station)
+      this.leaving.push(station)
+    }
+    this.cutBack = previous.cutBack
+    this.cutLeft = previous.cutLeft
+    this.backWall.scale.y = previous.backWall.scale.y
+    this.leftWall.scale.y = previous.leftWall.scale.y
+  }
+
+  updateCutaway(camera, ray, targetDistance) {
+    this.cutBack = camera.z < this.home.z - this.depth / 2 || this.blocks(ray, this.backBox, targetDistance)
+    this.cutLeft = camera.x < this.home.x - this.width / 2 || this.blocks(ray, this.leftBox, targetDistance)
+  }
+
+  blocks(ray, box, targetDistance) {
+    scratchBox.copy(box).translate(this.home)
+    const hit = ray.intersectBox(scratchBox, scratchPoint)
+    return hit !== null && hit.distanceTo(ray.origin) < targetDistance
   }
 
   lampWorld() {
@@ -155,11 +249,32 @@ export class NamespaceRoom extends THREE.Group {
 
   bounds() {
     const box = new THREE.Box3(new THREE.Vector3(-this.width / 2, -3, -this.depth / 2), new THREE.Vector3(this.width / 2, WALL_H, this.depth / 2))
-    return box.translate(this.position)
+    return box.translate(this.home)
   }
 
   tick(dt) {
     for (const station of this.stations.values()) station.tick(dt)
+    for (const gate of this.gates.values()) gate.tick(dt)
+    for (let i = this.leaving.length - 1; i >= 0; i--) {
+      const station = this.leaving[i]
+      station.tick(dt)
+      if (!station.done) continue
+      this.remove(station)
+      disposeTree(station)
+      this.leaving.splice(i, 1)
+    }
+    this.easeWall(this.backWall, this.cutBack, dt)
+    this.easeWall(this.leftWall, this.cutLeft, dt)
+  }
+
+  easeWall(wall, cut, dt) {
+    const target = cut ? WALL_CUT : 1
+    if (wall.scale.y === target) return
+    const next = wall.scale.y + (target - wall.scale.y) * Math.min(1, dt * WALL_SPEED)
+    wall.scale.y = Math.abs(next - target) < 0.005 ? target : next
+    for (const [owner, labels] of this.wallLabels) {
+      if (owner === wall) labels.forEach(label => (label.visible = wall.scale.y > LABEL_MIN))
+    }
   }
 }
 

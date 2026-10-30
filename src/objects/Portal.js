@@ -55,13 +55,13 @@ export class Portal extends THREE.Group {
     const sprite = textSprite(label, 1.1, { color: palette.text, background: '#2a2150', weight: 600 })
     sprite.position.y = labelY
     this.add(sprite)
+    this.home = new THREE.Vector3()
+    this.from = new THREE.Vector3()
+    this.appear = 0
+    this.scale.setScalar(0.01)
     this.phase = Math.random() * Math.PI * 2
     this.flash = 0
     this.userData.pick = { type: 'portal', id, kind, name }
-  }
-
-  anchor() {
-    return this.position.clone()
   }
 
   pulse() {
@@ -69,6 +69,10 @@ export class Portal extends THREE.Group {
   }
 
   tick(dt, time) {
+    if (this.appear < 1) {
+      this.appear = Math.min(1, this.appear + dt * 2)
+      this.scale.setScalar(Math.max(0.01, this.appear * (2 - this.appear)))
+    }
     this.body.position.y = Math.sin(time * 1.1 + this.phase) * 0.35
     if (this.spin) this.spin.rotation.y += dt * 0.25
     if (this.flash > 0) {

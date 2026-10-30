@@ -53,12 +53,14 @@ function buildNamespace(name, items) {
     .filter(i => i.kind === 'Service')
     .map(svc => {
       const selector = svc.spec?.selector ?? null
+      const backends = selector ? pods.filter(p => matches(p.labels, selector)) : []
       return {
         name: svc.metadata.name,
         type: svc.spec?.type,
         clusterIP: svc.spec?.clusterIP,
         ports: (svc.spec?.ports ?? []).map(p => `${p.port}/${p.protocol}`),
-        backends: selector ? pods.filter(p => matches(p.labels, selector)).map(p => p.name) : []
+        targets: targetPorts(svc, backends),
+        backends: backends.map(p => p.name)
       }
     })
 
@@ -80,6 +82,7 @@ function toPod(pod, byUid) {
     ready: statuses.length > 0 && statuses.every(s => s.ready),
     restarts: statuses.reduce((sum, s) => sum + (s.restartCount ?? 0), 0),
     containers: (pod.spec?.containers ?? []).map(c => c.name),
+    ports: Object.fromEntries((pod.spec?.containers ?? []).flatMap(c => c.ports ?? []).filter(p => p.name).map(p => [p.name, p.containerPort])),
     labels: pod.metadata.labels ?? {},
     workload: workloadOf(pod, byUid)
   }
@@ -93,6 +96,16 @@ function workloadOf(pod, byUid) {
     if (parent) return `${parent.kind}/${parent.name}`
   }
   return `${ref.kind}/${ref.name}`
+}
+
+function targetPorts(svc, backends) {
+  const targets = new Set()
+  for (const port of svc.spec?.ports ?? []) {
+    const target = port.targetPort ?? port.port
+    if (typeof target === 'number') targets.add(target)
+    else backends.forEach(p => p.ports[target] && targets.add(p.ports[target]))
+  }
+  return [...targets]
 }
 
 function matches(labels, selector) {

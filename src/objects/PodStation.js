@@ -4,6 +4,8 @@ import { surface, ownedSurface } from '../theme/materials.js'
 import { hazardMaterial } from '../theme/textures.js'
 import { palette } from '../theme/palette.js'
 
+const SINK_DEPTH = 5
+
 export class PodStation extends THREE.Group {
   constructor(pod, label) {
     super()
@@ -15,6 +17,12 @@ export class PodStation extends THREE.Group {
     this.lampMaterial = ownedSurface(palette.lamp, { emissive: palette.lamp, emissiveIntensity: 0.5 })
     this.flash = 0
     this.bump = 0
+    this.home = new THREE.Vector3()
+    this.rise = 0
+    this.riseSpeed = 0
+    this.shaking = 0
+    this.glide = null
+    this.done = false
 
     const base = block(2.4, 0.35, 2.4, surface(palette.metal))
     base.position.y = 0.175
@@ -47,6 +55,31 @@ export class PodStation extends THREE.Group {
     this.userData.pick = { type: 'pod', id: pod.name, ns: pod.namespace }
   }
 
+  place(x, y, z) {
+    this.home.set(x, y, z)
+    this.position.copy(this.home)
+  }
+
+  enter() {
+    this.rise = 1
+    this.riseSpeed = -0.8
+    this.position.y = this.home.y - SINK_DEPTH
+  }
+
+  exit() {
+    this.riseSpeed = 0.9
+    this.userData.pick = null
+  }
+
+  shake() {
+    this.shaking = 1
+  }
+
+  glideFrom(position) {
+    if (position.distanceToSquared(this.home) < 0.0001) return
+    this.glide = { from: position.clone(), t: 0 }
+  }
+
   pulse(color) {
     this.flash = 1
     this.lampMaterial.emissive.set(color)
@@ -57,6 +90,23 @@ export class PodStation extends THREE.Group {
   }
 
   tick(dt) {
+    this.position.copy(this.home)
+    if (this.glide) {
+      this.glide.t = Math.min(1, this.glide.t + dt / 0.7)
+      this.position.lerpVectors(this.glide.from, this.home, this.glide.t * this.glide.t * (3 - 2 * this.glide.t))
+      if (this.glide.t === 1) this.glide = null
+    }
+    if (this.riseSpeed !== 0) {
+      this.rise = Math.min(1, Math.max(0, this.rise + this.riseSpeed * dt))
+      if (this.rise === 0) this.riseSpeed = 0
+      if (this.rise === 1 && this.riseSpeed > 0) this.done = true
+    }
+    this.position.y -= this.rise * SINK_DEPTH
+    if (this.shaking > 0) {
+      this.shaking = Math.max(0, this.shaking - dt * 1.1)
+      this.position.x += Math.sin(this.shaking * 60) * 0.1 * this.shaking
+      this.position.z += Math.cos(this.shaking * 47) * 0.1 * this.shaking
+    }
     if (this.flash > 0) {
       this.flash = Math.max(0, this.flash - dt * 1.6)
       this.lampMaterial.emissiveIntensity = 0.5 + this.flash * 5

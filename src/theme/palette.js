@@ -8,7 +8,9 @@ export const palette = {
   dark: 0x3b3163,
   hole: 0x140e28,
   padInner: 0xa587dc,
-  roller: 0xee6b5f,
+  rollerBase: '#ee6b5f',
+  rollerStripe: '#c94f47',
+  junction: 0x8f7cc8,
   hazardYellow: '#f4b63f',
   hazardDark: '#2e2648',
   lamp: 0xfff0d8,
@@ -42,6 +44,8 @@ export const palette = {
     tracepoint: 0xf6bbe6,
     other: 0xaedaf6
   },
+  hover: 0xf1eaff,
+  selected: 0xc6e86e,
   world: 0x86d9c6,
   ring: 0xf6bbe6,
   led: 0xc6e86e
