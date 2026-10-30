@@ -35,6 +35,7 @@ async function loadFonts() {
 const DISTRICTS_KEY = 'kube-view:districts'
 const SELECTION_DELAY_MS = 250
 const OVERVIEW_TIGHTNESS = 1.05
+const DISTRICT_FRAME_TOP = 10
 
 function boot() {
   const stage = new Stage(document.getElementById('scene'))
@@ -252,6 +253,7 @@ function boot() {
     if (!info) return
     if (info.type === 'namespace') return focusNamespace(info.id)
     const box = new THREE.Box3().setFromObject(info.object).expandByScalar(info.type === 'pod' ? 5 : 3)
+    if (info.type === 'district') box.max.y = Math.max(box.max.y, DISTRICT_FRAME_TOP)
     rig.frame(box, { tightness: 0.9 })
   }
 

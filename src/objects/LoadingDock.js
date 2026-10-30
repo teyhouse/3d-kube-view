@@ -24,6 +24,7 @@ export class LoadingDock extends THREE.Group {
     this.width = Math.max(MIN_WIDTH, entries.length * BAY_WIDTH + 4)
     this.signature = JSON.stringify(entries)
     this.build(entries)
+    this.userData.pick = { type: 'dock', id: 'loading-dock', name: 'Loading dock' }
   }
 
   build(entries) {
@@ -76,6 +77,15 @@ export class LoadingDock extends THREE.Group {
 
   pulse(id) {
     this.gates.get(id)?.gate.pulse()
+  }
+
+  describeDock() {
+    return {
+      title: 'Loading dock',
+      subtitle: 'Cluster entry points',
+      rows: [['Bays', this.entries.size]],
+      sections: [{ title: 'Bays', items: [...this.entries.values()].map(entry => `${entry.workload} (${entry.kind})`) }]
+    }
   }
 
   describe(id) {

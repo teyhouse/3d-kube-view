@@ -14,7 +14,6 @@ export class DistrictPlate extends THREE.Group {
     this.slab = new THREE.Mesh(slabGeometry, surface(palette.district))
     this.slab.position.y = SLAB_TOP - SLAB_H / 2
     this.slab.receiveShadow = true
-    this.slab.userData.noPick = true
     this.title = textPlane(name.toUpperCase(), 5, { color: hex(palette.districtText) })
     this.title.rotation.x = -Math.PI / 2
     this.title.position.y = SLAB_TOP + 0.03
@@ -22,6 +21,8 @@ export class DistrictPlate extends THREE.Group {
     this.from = { x: 0, z: 0, w: 1, d: 1 }
     this.to = { x: 0, z: 0, w: 1, d: 1 }
     this.fresh = true
+    this.userData.pick = { type: 'district', id: name }
+    this.userData.ringY = SLAB_TOP + 0.06
   }
 
   target(x, z, w, d, labelZ) {

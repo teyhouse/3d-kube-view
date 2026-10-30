@@ -43,7 +43,7 @@ export class Highlighter {
     } else {
       box.setFromObject(object)
       box.getSize(size)
-      ring.position.set(box.min.x + size.x / 2 - origin.x, Math.max(box.min.y - origin.y, 0) + 0.06, box.min.z + size.z / 2 - origin.z)
+      ring.position.set(box.min.x + size.x / 2 - origin.x, object.userData.ringY ?? Math.max(box.min.y - origin.y, 0) + 0.06, box.min.z + size.z / 2 - origin.z)
     }
     ring.scale.set((size.x / 2 + MARGIN) / HALF_SIDE, 1, (size.z / 2 + MARGIN) / HALF_SIDE)
     ring.visible = true

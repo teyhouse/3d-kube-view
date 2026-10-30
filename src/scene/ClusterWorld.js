@@ -342,10 +342,25 @@ export class ClusterWorld {
     return box
   }
 
+  describeDistrict(name) {
+    const rooms = this.order.filter(room => room.data.district === name)
+    return {
+      title: name,
+      subtitle: 'District',
+      rows: [
+        ['Namespaces', rooms.length],
+        ['Pods', rooms.reduce((sum, room) => sum + room.pods.size, 0)]
+      ],
+      sections: [{ title: 'Namespaces', items: rooms.map(room => room.namespace) }]
+    }
+  }
+
   describe(pick) {
     if (!pick) return null
     if (pick.type === 'node') return this.yard.describe(pick.id)
     if (pick.type === 'bay') return this.dock?.describe(pick.id) ?? null
+    if (pick.type === 'dock') return this.dock?.describeDock() ?? null
+    if (pick.type === 'district') return this.describeDistrict(pick.id)
     const room = this.rooms.get(pick.ns)
     if (pick.type === 'pod') {
       const p = room?.pods.get(pick.id)
