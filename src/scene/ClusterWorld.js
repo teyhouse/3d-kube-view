@@ -3,6 +3,7 @@ import { NamespaceRoom } from '../objects/NamespaceRoom.js'
 import { Portal } from '../objects/Portal.js'
 import { DistrictPlate } from '../objects/DistrictPlate.js'
 import { NodeYard } from './NodeYard.js'
+import { LoadingDock, DOCK_DEPTH } from '../objects/LoadingDock.js'
 import { disposeTree } from '../objects/primitives.js'
 
 const ROOM_GAP = 14
@@ -19,6 +20,8 @@ const LOD_NEAR = 0.3
 const LOD_FAR = 0.24
 const YARD_GAP = 26
 const YARD_Y = -3
+const DOCK_GAP = 15
+const PORTAL_GAP_WITH_DOCK = 44
 
 const ease = t => t * t * (3 - 2 * t)
 
@@ -40,6 +43,8 @@ export class ClusterWorld {
     this.districts = true
     this.plates = new Map()
     this.anyNear = true
+    this.dock = null
+    this.dockZ = -40
     this.yard = new NodeYard()
     this.yard.visible = false
     this.yardWanted = null
@@ -47,7 +52,7 @@ export class ClusterWorld {
     this.root.add(this.yard)
   }
 
-  setTopology(entries, { animate = true, districts = true } = {}) {
+  setTopology(entries, { animate = true, districts = true, entryPoints = [] } = {}) {
     const next = new Map()
     const changed = []
     const entered = []
@@ -67,6 +72,7 @@ export class ClusterWorld {
       if (current) {
         if (current.width !== room.width || current.depth !== room.depth || current.data.district !== data.district) layoutChanged = true
         room.setFar(current.far)
+        room.lodKnown = current.lodKnown
         room.position.copy(current.position)
         room.scale.copy(current.scale)
         room.home.copy(current.home)
@@ -97,8 +103,9 @@ export class ClusterWorld {
       if (portal.ns && this.rooms.has(portal.ns)) this.removePortal(id, animate)
     }
 
+    const dockChanged = this.updateDock(entryPoints.filter(entry => this.rooms.has(entry.ns)), animate)
     if (layoutChanged) this.layout(animate)
-    return { layoutChanged, changed, entered, left }
+    return { layoutChanged, dockChanged, changed, entered, left }
   }
 
   layout(animate) {
@@ -144,7 +151,13 @@ export class ClusterWorld {
     }
     if (!animate) this.plates.forEach(plate => plate.apply(1))
 
-    this.backZ = Math.min(minZ, -11) - 30
+    this.dockZ = Math.min(minZ, -11) - DOCK_GAP
+    if (this.dock) {
+      this.dock.home.set(0, 0, this.dockZ)
+      this.dock.from.copy(this.dock.position)
+      if (!animate) this.dock.position.copy(this.dock.home)
+    }
+    this.backZ = Math.min(minZ, -11) - (this.dock ? PORTAL_GAP_WITH_DOCK : 30)
     this.frontZ = maxZ
     this.placeYard()
 
@@ -169,6 +182,30 @@ export class ClusterWorld {
 
     this.moveT = animate ? 0 : 1
     this.moveK = animate ? 0 : 1
+  }
+
+  updateDock(entries, animate) {
+    const signature = JSON.stringify(entries)
+    if ((this.dock?.signature ?? '[]') === signature) return false
+    const previous = this.dock
+    this.dock = entries.length ? new LoadingDock(entries) : null
+    if (this.dock) {
+      this.dock.home.set(0, 0, this.dockZ)
+      this.dock.position.copy(previous?.position ?? this.dock.home)
+      this.dock.from.copy(this.dock.position)
+      this.root.add(this.dock)
+    }
+    if (previous) this.exit(previous, animate)
+    return true
+  }
+
+  bayFor(flow) {
+    if (!this.dock) return null
+    const inbound = flow.src.kind === 'world' && flow.dst.kind === 'pod'
+    const outbound = flow.dst.kind === 'world' && flow.src.kind === 'pod'
+    if (!inbound && !outbound) return null
+    const pod = inbound ? flow.dst : flow.src
+    return this.dock.bayFor(pod.ns, pod.name)
   }
 
   groupRooms() {
@@ -267,6 +304,10 @@ export class ClusterWorld {
 
   anchor(id) {
     if (id.startsWith('room:')) return this.rooms.get(id.slice(5))?.hatchHome() ?? null
+    if (id.startsWith('bay:')) {
+      const side = id.slice(4, id.indexOf(':', 4))
+      return this.dock?.anchor(id.slice(id.indexOf(':', 4) + 1), side) ?? null
+    }
     return this.portals.get(id)?.home.clone() ?? null
   }
 
@@ -284,6 +325,10 @@ export class ClusterWorld {
     const box = new THREE.Box3()
     for (const room of this.order) box.union(room.bounds())
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(30, 10, 30))
+    if (this.dock) {
+      box.expandByPoint(new THREE.Vector3(-this.dock.width / 2, 0, this.dock.home.z - DOCK_DEPTH / 2))
+      box.expandByPoint(new THREE.Vector3(this.dock.width / 2, 0, this.dock.home.z - DOCK_DEPTH / 2))
+    }
     if (this.yard.visible) {
       box.expandByPoint(new THREE.Vector3(-this.yard.width / 2, YARD_Y, this.frontZ + YARD_GAP + this.yard.depth))
       box.expandByPoint(new THREE.Vector3(this.yard.width / 2, YARD_Y, this.frontZ + YARD_GAP + this.yard.depth))
@@ -300,6 +345,7 @@ export class ClusterWorld {
   describe(pick) {
     if (!pick) return null
     if (pick.type === 'node') return this.yard.describe(pick.id)
+    if (pick.type === 'bay') return this.dock?.describe(pick.id) ?? null
     const room = this.rooms.get(pick.ns)
     if (pick.type === 'pod') {
       const p = room?.pods.get(pick.id)
@@ -369,7 +415,8 @@ export class ClusterWorld {
     for (const room of this.order) {
       room.updateCutaway(eye, this.ray, distance)
       const ratio = room.radius / (eye.distanceTo(room.home) * tanHalf)
-      room.setFar(ratio < (room.far ? LOD_NEAR : LOD_FAR))
+      room.setFar(ratio < (room.far || !room.lodKnown ? LOD_NEAR : LOD_FAR))
+      room.lodKnown = true
       anyNear ||= !room.far
     }
     this.anyNear = anyNear
@@ -385,6 +432,7 @@ export class ClusterWorld {
       }
       for (const portal of this.portals.values()) portal.position.lerpVectors(portal.from, portal.home, this.moveK)
       for (const plate of this.plates.values()) plate.apply(this.moveK)
+      if (this.dock) this.dock.position.lerpVectors(this.dock.from, this.dock.home, this.moveK)
     }
 
     for (let i = this.exits.length - 1; i >= 0; i--) {
@@ -400,5 +448,6 @@ export class ClusterWorld {
 
     for (const room of this.order) room.tick(dt)
     for (const portal of this.portals.values()) portal.tick(dt, time)
+    this.dock?.tick(dt)
   }
 }

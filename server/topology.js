@@ -1,5 +1,6 @@
 import { run } from './kubectl.js'
 import { fetchPolicies, policyForPod, policiesInNamespace } from './policies.js'
+import { fetchRoutes, findEntryPoints } from './entrypoints.js'
 
 const KINDS = 'pods,services,deployments,statefulsets,daemonsets,replicasets,jobs'
 const CONTROLLERS = new Set(['Deployment', 'StatefulSet', 'DaemonSet'])
@@ -66,12 +67,13 @@ function toNode(node) {
 }
 
 export async function fetchTopology(filter) {
-  const [nsRaw, raw, nodesRaw, flux, policies] = await Promise.all([
+  const [nsRaw, raw, nodesRaw, flux, policies, routes] = await Promise.all([
     run(['get', 'namespaces', '-o', 'json']),
     run(['get', KINDS, '-A', '-o', 'json']),
     run(['get', 'nodes', '-o', 'json']),
     fetchFlux(),
-    fetchPolicies()
+    fetchPolicies(),
+    fetchRoutes()
   ])
   const districtOf = districtResolver(flux)
   const names = JSON.parse(nsRaw)
@@ -84,15 +86,13 @@ export async function fetchTopology(filter) {
     if (!byNamespace.has(ns)) byNamespace.set(ns, [])
     byNamespace.get(ns).push(item)
   }
-  return {
-    nodes: JSON.parse(nodesRaw).items.map(toNode),
-    namespaces: names.map(name => {
-      const items = byNamespace.get(name) ?? []
-      const built = buildNamespace(name, items)
-      for (const pod of built.pods) pod.policy = policyForPod(policies, name, pod.labels)
-      return { ...built, district: districtOf(name, items), policies: policiesInNamespace(policies, name) }
-    })
-  }
+  const namespaces = names.map(name => {
+    const items = byNamespace.get(name) ?? []
+    const built = buildNamespace(name, items)
+    for (const pod of built.pods) pod.policy = policyForPod(policies, name, pod.labels)
+    return { ...built, district: districtOf(name, items), policies: policiesInNamespace(policies, name) }
+  })
+  return { nodes: JSON.parse(nodesRaw).items.map(toNode), namespaces, entryPoints: findEntryPoints(namespaces, routes) }
 }
 
 function buildNamespace(name, items) {

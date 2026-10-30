@@ -10,6 +10,7 @@ const SWEEP_MS = 5000
 const HISTORY_SECONDS = 30
 const MIN_SPAWN_GAP_MS = 120
 const HATCH_PACE = 0.45
+const DOCK_PACE = 0.6
 const MAX_SEED_PARCELS = 160
 const FAR_SPAWN_GAP_MS = 1000
 const MAX_CONNECTIONS = 8
@@ -42,12 +43,13 @@ export class TrafficSystem {
     this.activity = new Map()
   }
 
-  applyChange({ layoutChanged, changed, entered, left }) {
+  applyChange({ layoutChanged, dockChanged, changed, entered, left }) {
     const affected = new Set([...changed, ...entered, ...left])
     const remaps = new Map()
 
     for (const [key, route] of this.routes) {
-      if (!route.namespaces.some(ns => affected.has(ns))) continue
+      const touchesWorld = route.flow.src.kind === 'world' || route.flow.dst.kind === 'world'
+      if (!route.namespaces.some(ns => affected.has(ns)) && !(dockChanged && touchesWorld)) continue
       const previous = route.path
       const next = this.buildPath(route.flow)
       if (!next) {
@@ -61,7 +63,7 @@ export class TrafficSystem {
       remaps.set(route, { map: u => remapProgress(previous, next.path, u) })
     }
 
-    if (layoutChanged) this.retargetTubes()
+    if (layoutChanged || dockChanged) this.retargetTubes()
     this.packages.retarget(remaps)
     this.dropUnusedTubes()
     this.seed(entered)
@@ -155,6 +157,7 @@ export class TrafficSystem {
       })
       if (!this.filter.accepts(flow)) continue
       this.showTags(route, flow, now)
+      if (flow.reply && this.filter.off.has('Replies')) continue
       route.pending += flow.count
       const far = route.namespaces.every(ns => this.world.rooms.get(ns)?.far ?? true)
       if (far && flow.reply) continue
@@ -307,7 +310,11 @@ export class TrafficSystem {
         if (a.pod) this.inRoom(legs, parts, a.room, a.pod, HATCH)
         legs.push(lineLeg(a.room, a.room.portLocal(HATCH), a.room.hatchOutsideLocal(), HATCH_PACE))
       }
-      this.tube(legs, parts, a, b)
+      const bay = world.bayFor(flow)
+      const startId = a.room ? `room:${a.room.namespace}` : a.portal.portalId
+      const endId = b.room ? `room:${b.room.namespace}` : b.portal.portalId
+      if (bay) this.throughDock(legs, parts, bay, startId, endId, flow.src.kind === 'world')
+      else this.tube(legs, parts, startId, endId)
       if (b.room) {
         legs.push(lineLeg(b.room, b.room.hatchOutsideLocal(), b.room.portLocal(HATCH), HATCH_PACE))
         if (b.pod) this.inRoom(legs, parts, b.room, HATCH, b.pod, gate)
@@ -338,9 +345,18 @@ export class TrafficSystem {
     if (end.distanceToSquared(last) > 1e-4) legs.push(lineLeg(room, last, end))
   }
 
-  tube(legs, parts, a, b) {
-    const startId = a.room ? `room:${a.room.namespace}` : a.portal.portalId
-    const endId = b.room ? `room:${b.room.namespace}` : b.portal.portalId
+  throughDock(legs, parts, bay, startId, endId, inbound) {
+    const { dock } = this.world
+    const first = inbound ? 'out' : 'in'
+    const second = inbound ? 'in' : 'out'
+    this.tube(legs, parts, startId, `bay:${first}:${bay}`)
+    const leg = inbound ? lineLeg(dock, dock.outsideLocal(bay), dock.insideLocal(bay), DOCK_PACE) : lineLeg(dock, dock.insideLocal(bay), dock.outsideLocal(bay), DOCK_PACE)
+    leg.onEnter = () => dock.pulse(bay)
+    legs.push(leg)
+    this.tube(legs, parts, `bay:${second}:${bay}`, endId)
+  }
+
+  tube(legs, parts, startId, endId) {
     const forward = startId < endId
     const key = forward ? `${startId}|${endId}` : `${endId}|${startId}`
     let part = this.tubes.get(key)

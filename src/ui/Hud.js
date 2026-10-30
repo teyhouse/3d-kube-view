@@ -30,6 +30,7 @@ const TEMPLATE = `
     <button data-kind="DNS"><i style="--c:#9fc9ff"></i>DNS</button>
     <button data-kind="ICMP"><i style="--c:#ffd5a0"></i>ICMP</button>
     <button data-kind="Dropped"><i style="--c:#ff4d61"></i>Dropped</button>
+    <button data-kind="Replies" title="Show or hide reply traffic"><i style="--c:#e9e1f7"></i>Replies</button>
     <span class="legend-fence">Fence: <i style="--c:#c6e86e"></i>in + out <i style="--c:#aedaf6"></i>in <i style="--c:#ffd5a0"></i>out</span>
   </div>
   <div class="help">WASD pan · Q/E rotate · R/F zoom · Shift faster · Click select · Double click or 1-9 focus · N namespaces · B nodes · Space pause · Esc overview</div>

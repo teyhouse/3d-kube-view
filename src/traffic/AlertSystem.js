@@ -42,14 +42,16 @@ export class AlertSystem {
   record(event) {
     const now = Date.now()
     const title = titleOf(event)
-    const key = `${event.ns}/${event.pod}|${title}|${event.target ?? event.binary}`
+    const detail = event.target ?? event.binary
+    const key = event.severity === 'warn' ? `${event.ns}/${event.pod}|${title}` : `${event.ns}/${event.pod}|${title}|${detail}`
     const existing = this.byKey.get(key)
     if (existing && now - existing.last < MERGE_MS) {
       existing.count++
       existing.last = now
+      existing.detail = detail
       return
     }
-    const alert = { key, ns: event.ns, pod: event.pod, severity: event.severity, title, detail: event.target ?? event.binary, count: 1, last: now }
+    const alert = { key, ns: event.ns, pod: event.pod, severity: event.severity, title, detail, count: 1, last: now }
     this.byKey.set(key, alert)
     this.alerts.unshift(alert)
     for (const old of this.alerts.splice(MAX_ALERTS)) this.byKey.delete(old.key)

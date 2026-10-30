@@ -108,7 +108,7 @@ function boot() {
     const entries = topology.namespaces.map((data, index) => ({ data, index })).filter(e => selection.isVisible(e.data.name))
     if (districts) entries.sort((a, b) => (a.data.district ?? '').localeCompare(b.data.district ?? '') || a.index - b.index)
     const focused = world.order[focus]?.namespace
-    const change = world.setTopology(entries, { animate: framed, districts })
+    const change = world.setTopology(entries, { animate: framed, districts, entryPoints: topology.entryPoints ?? [] })
     world.updateNodes(topology)
     traffic.applyChange(change)
     tags.forget(change.left)
