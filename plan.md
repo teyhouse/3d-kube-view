@@ -58,7 +58,8 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 - `kubectl.js`: run commands, stream lines, supervise long running streams with backoff restart, remote stdin watchdog so streams end inside the pod when kubectl goes away.
 - `topology.js`: one `kubectl get ... -A` call plus `kubectl get namespaces`, grouped per namespace, resolve pod to workload via owner references, match service selectors.
 - `hubble.js`: one `hubble observe --follow -o json` per cilium agent pod (multi node ready), `--all-namespaces` or per namespace filters, normalize endpoints (pod, namespace, world, host), coalesce into batches keyed by src/dst/proto/port/verdict.
-- `tetragon.js`: one `tetra getevents -o json` per tetragon pod, normalize exec/exit/kprobe events, batch.
+- `policies.js`: fetch and evaluate network policies per pod (cached 30s).
+- `tetragon.js`: one `tetra getevents -o json` per tetragon pod, normalize exec/exit/kprobe events, classify alerts, batch.
 - `hub.js`: SSE client registry, starts streams on first client, stops them after an idle grace period, sends a snapshot (config, topology, status) to new clients.
 - `api.js`: HTTP middleware shared by the Vite dev server (plugin) and the production server.
 - `index.js`: production server serving `dist/` plus the API on `127.0.0.1`.
@@ -96,14 +97,15 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 ## Status (TL;DR)
 
-**Works today:** all namespaces as a live campus grouped into districts, real Hubble flows as parcels on belts and tubes, Tetragon events as lamp flashes and labels, two zoom levels with aggregated traffic at distance, toggling that keeps traffic state and refilters the streams, saved views, node yard, pod details with live connections and processes.
+**Works today:** everything in phases 1 to 4: live campus with districts and zoom levels, belts, tubes, gates, policy fences, drop reasons, DNS and HTTP tags, Tetragon alerts with beacons and a feed, flow filters, pause and replay, belt heat, saved views, node yard, performance meter.
 
-**Missing / rough:**
+**Known limits:**
 
-- Machines and conveyors are still individual meshes: a large room in close-up costs a few hundred draw calls (shadow pass included).
-- Tubes arc over rooms, but can still pass through tall walls at long range.
-- Multi node only tested with mock data, the real cluster has one node.
-- No policies, no L7 details, no alerts, no pause/replay (phase 4).
+- Machines and conveyors are individual meshes: a large room in close-up costs a few hundred draw calls.
+- Tubes can still pass through tall walls at long range.
+- Tested with mock data only, because the real cluster did not produce it: multiple nodes, policy drops, HTTP, TracingPolicy alerts.
+- Replay uses the current topology, and only covers what this browser received since it opened (at most 5 minutes).
+- Tetragon events without a pod (host processes) are ignored.
 
 ## Phase 2: Make it feel alive (done)
 
@@ -133,13 +135,16 @@ kubectl ──┬─ get pods,svc,deploy,... (poll 5s) ──┐
 
 Not done on purpose: machines stay individual meshes because lifecycle animations move them, and far rooms already hide them. Revisit if close-ups get slow.
 
-## Phase 4: Insight features
+## Phase 4: Insight features (done)
 
-- Cilium NetworkPolicies as walls/fences on the room, drops shown with a "reason" sign (Hubble `drop_reason_desc`).
-- L7 visibility: HTTP method/status as parcel stickers, DNS queries as floating tags.
-- Tetragon TracingPolicies: file access, network connect, privileged exec as alert beacons, with an alert feed.
-- Search and filters (namespace, pod, protocol, verdict), pause and time scrub (ring buffer replay).
-- Edge metrics: throughput heat on belts, latency from Hubble L7 flows.
+- [x] Policy fences: rails around a workload pad when all of its pods are restricted (green in and out, blue in only, peach out only). `server/policies.js` evaluates CiliumNetworkPolicy, CiliumClusterwideNetworkPolicy and NetworkPolicy per pod. Enforcement on or off was compared with `cilium-dbg endpoint list` and matched 44 of 44 pods. In Cilium an empty rule (`ingress: [{}]`) means default deny, in Kubernetes NetworkPolicy it means allow all.
+- [x] Drop reasons: Hubble `drop_reason_desc` as a floating sign where the parcel falls, in the event log and in the pod details.
+- [x] L7: DNS queries and HTTP method and path as floating tags, failed requests in red, HTTP errors recolor the parcel. URL query strings are stripped. Recent entries and latency in the pod details. Plan said stickers on parcels, tags turned out more readable.
+- [x] Tetragon alerts: events from a TracingPolicy are `high`, execs with `CAP_SYS_ADMIN` are `warn`. Beacon on the machine, `!` sign on far rooms, feed that merges repeats within 30s and flies to the pod on click.
+- [x] Filters: legend entries toggle kinds of traffic, search box filters by pod or namespace, Enter flies to the first match.
+- [x] Pause and replay: `Space` freezes the scene while the camera stays free, the slider replays the last 5 minutes at 1x to 8x, Live jumps back.
+- [x] Edge metrics: belts glow and tubes warm up with throughput (log scale), latency per connection in the pod details.
+- [x] Performance meter: fps, frame time, p99, CPU time, GPU time (where `EXT_disjoint_timer_query_webgl2` is available), draw calls, triangles and a frame graph with a 60 fps line.
 
 ## Open Questions
 
@@ -170,4 +175,4 @@ npm run screenshot -- http://127.0.0.1:8080/
 
 Screenshots of the overview and every room land in `screenshots/`.
 
-Controls: `WASD`/arrows pan, `Q`/`E` rotate, `R`/`F` or mouse wheel zoom, `Shift` faster, left drag orbit, right drag pan, click select, double click focus, `1`-`9` jump to the n-th visible namespace, `N` toggle namespace panel, `B` toggle node yard, `Esc` overview.
+Controls: `WASD`/arrows pan, `Q`/`E` rotate, `R`/`F` or mouse wheel zoom, `Shift` faster, left drag orbit, right drag pan, click select, double click focus, `1`-`9` jump to the n-th visible namespace, `N` toggle namespace panel, `B` toggle node yard, `Space` pause, `Esc` overview.

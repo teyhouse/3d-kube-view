@@ -13,14 +13,16 @@ A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Names
 | Flux path | District plate on the ground |
 | Namespace | Diorama room with its number and name on the wall. Far away it collapses to one block per pod |
 | Node | Plate in the node yard with its pods |
-| Workload | Hazard striped pad with a name sign |
+| Workload | Hazard striped pad with a name sign, fenced when network policies restrict it |
 | Pod | Machine with a lamp, color shows status. Rises on create, sinks on delete, shakes on restart |
 | Service | Gate arch, service traffic rides through it |
 | Flow | Parcel on a belt (inside a room) or through a tube (between rooms) |
 | Internet, node/host, hidden namespace | Floating portals |
 | Tetragon exec / kprobe | Lamp flash and floating process name |
+| Tetragon TracingPolicy event, privileged exec | Beacon on the machine and an entry in the alert feed |
+| DNS, HTTP, drop reason | Floating tags |
 
-Parcel colors: TCP lime, UDP blue, HTTP pink, ICMP peach, dropped red (falls off the belt).
+Parcel colors: TCP lime, UDP blue, HTTP pink, DNS blue, ICMP peach, dropped red (falls off the belt). Click a legend entry to hide that traffic. Belts and tubes warm up with throughput. The panel at the bottom right shows fps, frame time, CPU and GPU time, draw calls and triangles.
 
 ## Requirements
 
@@ -52,6 +54,7 @@ KUBE_CONTEXT=my-ctx PORT=9000 ./start.sh
 | Double click, `1`-`9` | Fly to object or namespace |
 | `N` | Toggle namespace panel |
 | `B` | Toggle node yard |
+| `Space` | Pause or resume, the slider above the nav replays the last 5 minutes |
 | `Esc` | Back to overview |
 
 The namespace panel lets you show all namespaces or toggle a selection (presets, search, live activity dots, saved views, districts from Flux paths). The selection is stored in the browser, toggling keeps the traffic that is already moving, and the server only streams what at least one browser shows.

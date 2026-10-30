@@ -27,6 +27,9 @@ export function startTetragon(namespaces, { onEvents, onStatus }) {
       binary: body.process.binary ?? '',
       args: body.process.arguments ?? '',
       fn: body.function_name ?? null,
+      policy: body.policy_name ?? null,
+      target: targetOf(body.args),
+      severity: severityOf(type, body),
       time: msg.time
     })
   }
@@ -64,4 +67,18 @@ export function startTetragon(namespaces, { onEvents, onStatus }) {
     clearInterval(timer)
     stops.forEach(stop => stop())
   }
+}
+
+function targetOf(args = []) {
+  for (const arg of args) {
+    const value = arg.file_arg?.path ?? arg.path_arg?.path ?? arg.string_arg ?? (arg.sock_arg ? `${arg.sock_arg.daddr}:${arg.sock_arg.dport}` : null)
+    if (value) return value
+  }
+  return null
+}
+
+function severityOf(type, body) {
+  if (body.policy_name && type !== 'process_exec' && type !== 'process_exit') return 'high'
+  if (type === 'process_exec' && body.process?.cap?.effective?.includes('CAP_SYS_ADMIN')) return 'warn'
+  return null
 }

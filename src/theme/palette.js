@@ -49,6 +49,10 @@ export const palette = {
   },
   hover: 0xf1eaff,
   selected: 0xc6e86e,
+  fence: { both: 0xc6e86e, ingress: 0xaedaf6, egress: 0xffd5a0 },
+  alert: { high: 0xff4d61, warn: 0xf7d48c },
+  heat: 0xff8a4d,
+  httpError: 0xff9a6b,
   world: 0x86d9c6,
   ring: 0xf6bbe6,
   led: 0xc6e86e

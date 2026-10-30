@@ -143,11 +143,21 @@ body {
   color: var(--muted);
 }
 
-.log {
+.right-col {
   top: 98px;
   right: 18px;
-  width: 300px;
-  max-height: calc(100vh - 400px);
+  bottom: 18px;
+  width: 310px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.log {
+  flex: 0 1 auto;
+  min-height: 60px;
   overflow: hidden;
   padding: 12px 14px;
 }
@@ -208,13 +218,12 @@ body {
 }
 
 .details {
-  bottom: 18px;
-  right: 18px;
-  max-height: 46vh;
+  flex: 0 0 auto;
+  max-height: 42vh;
   overflow-y: auto;
   scrollbar-width: thin;
-  width: 280px;
   padding: 14px 16px;
+  pointer-events: auto;
 }
 
 .details h3 {
@@ -257,9 +266,13 @@ body {
 
 .legend {
   left: 18px;
-  bottom: 48px;
+  bottom: 52px;
+  max-width: calc(50vw - 170px);
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  pointer-events: auto;
   font-size: 12px;
   color: var(--muted);
 }
@@ -591,4 +604,205 @@ body {
   color: var(--text);
   background: rgba(161, 124, 247, 0.4);
   cursor: pointer;
+}
+
+.legend button {
+  border: 0;
+  padding: 2px 4px;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.legend button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.legend button.off {
+  opacity: 0.35;
+  text-decoration: line-through;
+}
+
+.legend-fence i {
+  margin: 0 3px 0 6px;
+}
+
+.flow-search {
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 400px;
+  padding: 8px 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  pointer-events: auto;
+}
+
+.flow-search:focus {
+  border-color: #a17cf7;
+}
+
+.timeline-panel {
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 500px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.timeline button {
+  border: 0;
+  border-radius: 8px;
+  padding: 3px 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.timeline button:hover {
+  background: rgba(161, 124, 247, 0.4);
+}
+
+.tl-slider {
+  flex: 1;
+  min-width: 0;
+  accent-color: #a17cf7;
+}
+
+.tl-label {
+  min-width: 92px;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.alerts {
+  flex: 0 0 auto;
+  max-height: 30vh;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 14px;
+  pointer-events: auto;
+}
+
+.alerts header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.alerts h4 {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #ff8d99;
+}
+
+.alerts-clear {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.alerts ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.alerts li {
+  margin-bottom: 4px;
+  border-left: 3px solid var(--error);
+}
+
+.alerts li.warn {
+  border-color: var(--warn);
+}
+
+.alerts li button {
+  display: grid;
+  width: 100%;
+  padding: 2px 0 2px 8px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.alerts li button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.alerts li span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alert-panel:empty,
+.perf-panel:empty {
+  display: none;
+}
+
+.perf {
+  margin-top: auto;
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.perf-panel {
+  margin-top: auto;
+}
+
+.perf-summary {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.perf-summary[data-state='warn'] {
+  color: var(--warn);
+}
+
+.perf-summary[data-state='bad'] {
+  color: var(--error);
+}
+
+.perf-graph {
+  display: block;
+  width: 100%;
+  height: 34px;
+  margin: 4px 0;
 }

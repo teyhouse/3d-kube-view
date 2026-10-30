@@ -13,11 +13,18 @@ import { tickRollers } from './objects/Conveyor.js'
 import { ClusterWorld } from './scene/ClusterWorld.js'
 import { PackageSystem } from './traffic/PackageSystem.js'
 import { TrafficSystem } from './traffic/TrafficSystem.js'
-import { ProcessFx } from './traffic/ProcessFx.js'
+import { ProcessFx, nameOf } from './traffic/ProcessFx.js'
+import { FloatingTags } from './traffic/FloatingTags.js'
+import { AlertSystem } from './traffic/AlertSystem.js'
 import { Hud } from './ui/Hud.js'
 import { NamespacePanel } from './ui/NamespacePanel.js'
+import { AlertFeed } from './ui/AlertFeed.js'
+import { PerfMeter } from './ui/PerfMeter.js'
+import { TimelineBar } from './ui/TimelineBar.js'
 import { Selection } from './data/Selection.js'
 import { Views } from './data/Views.js'
+import { Timeline } from './data/Timeline.js'
+import { FlowFilter } from './data/FlowFilter.js'
 import { connect } from './data/EventStream.js'
 
 async function loadFonts() {
@@ -38,10 +45,15 @@ function boot() {
   stage.scene.add(world.root, world.exitRoot, trafficRoot)
 
   const packages = new PackageSystem(trafficRoot)
-  const traffic = new TrafficSystem(world, trafficRoot, packages)
-  const fx = new ProcessFx(world, trafficRoot)
+  const tags = new FloatingTags(trafficRoot)
+  const filter = new FlowFilter()
+  const traffic = new TrafficSystem(world, trafficRoot, packages, tags, filter)
+  const fx = new ProcessFx(world, tags)
+  const alerts = new AlertSystem(world, tags)
   const hud = new Hud(document.getElementById('hud'))
   const panel = new NamespacePanel(hud.namespaceRoot)
+  const alertFeed = new AlertFeed(hud.alertRoot)
+  const perf = new PerfMeter(hud.perfRoot)
   const selection = new Selection()
   const views = new Views()
   const frustum = new THREE.Frustum()
@@ -99,7 +111,7 @@ function boot() {
     const change = world.setTopology(entries, { animate: framed, districts })
     world.updateNodes(topology)
     traffic.applyChange(change)
-    fx.forget(change.left)
+    tags.forget(change.left)
     panel.setNamespaces(topology.namespaces, name => selection.isVisible(name))
 
     focus = world.order.findIndex(r => r.namespace === focused)
@@ -168,9 +180,67 @@ function boot() {
       ...base,
       sections: [
         { title: 'Connections (last 30s)', items: traffic.connections(info.ns, info.id) },
-        { title: 'Recent processes', items: fx.recent(info.ns, info.id) }
+        { title: 'Recent DNS and HTTP', items: traffic.recentL7(info.ns, info.id) },
+        { title: 'Recent processes', items: fx.recent(info.ns, info.id) },
+        ...base.sections
       ]
     }
+  }
+
+  const flyToPod = (ns, name) => {
+    const room = world.rooms.get(ns)
+    if (!room) return false
+    const station = room.stations.get(name)
+    room.setFar(false)
+    const box = station ? new THREE.Box3().setFromObject(station).expandByScalar(5) : room.bounds()
+    rig.frame(box, { tightness: 0.9 })
+    return true
+  }
+
+  const dispatch = (kind, items, replay) => {
+    if (kind === 'flows') {
+      traffic.handle(items)
+      if (replay) return
+      for (const f of items) {
+        if (f.verdict === 'DROPPED') hud.log('drop', f.dropReason ?? 'dropped', `${f.srcId} → ${f.dstId}:${f.port ?? ''}`)
+      }
+      return
+    }
+    fx.handle(items)
+    alerts.handle(items, replay)
+    if (replay) return
+    for (const e of items) {
+      if (e.type !== 'exit' && !e.severity) hud.log(e.type === 'exec' ? 'exec' : 'kprobe', nameOf(e), `${e.ns}/${e.pod}`)
+    }
+  }
+
+  const timeline = new Timeline(dispatch)
+  timeline.onSeek = () => packages.clear()
+  const timelineBar = new TimelineBar(hud.timelineRoot, timeline)
+
+  alerts.onChange = list => alertFeed.render(list)
+  alertFeed.onClear = () => alerts.clear()
+  alertFeed.onOpen = alert => flyToPod(alert.ns, alert.pod)
+
+  hud.onKindToggle = (kind, enabled) => {
+    if (enabled) filter.off.delete(kind)
+    else filter.off.add(kind)
+  }
+  hud.search.addEventListener('input', () => {
+    filter.text = hud.search.value.trim().toLowerCase()
+  })
+  hud.search.addEventListener('keydown', e => {
+    if (e.code !== 'Enter' || !filter.text) return
+    for (const room of world.order) {
+      const pod = [...room.pods.keys()].find(name => `${room.namespace}/${name}`.includes(filter.text))
+      if (pod && flyToPod(room.namespace, pod)) return
+    }
+  })
+
+  stage.onFrame = timing => {
+    perf.gpuSupported = stage.gpuTimer.supported
+    perf.gpuMs = stage.gpuTimer.value
+    perf.record(timing, stage.renderer.info.render)
   }
 
   picker.onSelect = info => {
@@ -192,6 +262,10 @@ function boot() {
       hud.showDetails(null)
       highlighter.select(null)
       focusRoom(-1)
+    }
+    if (e.code === 'Space') {
+      e.preventDefault()
+      timeline.togglePause()
     }
     if (e.code === 'KeyB') {
       world.toggleNodes()
@@ -218,20 +292,8 @@ function boot() {
           hud.log('info', 'topology', `${next.namespaces.length} namespaces, ${pods} pods`)
         }
       },
-      flows: flows => {
-        traffic.handle(flows)
-        for (const f of flows) {
-          if (f.verdict === 'DROPPED') hud.log('drop', 'dropped', `${f.srcId} → ${f.dstId}:${f.port ?? ''}`)
-        }
-      },
-      process: events => {
-        fx.handle(events)
-        for (const e of events) {
-          if (!selection.isVisible(e.ns)) continue
-          if (e.type === 'exec') hud.log('exec', e.binary.split('/').pop(), `${e.ns}/${e.pod}`)
-          if (e.type === 'kprobe') hud.log('kprobe', e.fn, `${e.ns}/${e.pod}`)
-        }
-      }
+      flows: flows => timeline.push('flows', flows),
+      process: events => timeline.push('process', events)
     },
     {
       onOpen: () => hud.setStatus('stream', 'ok'),
@@ -240,12 +302,15 @@ function boot() {
   )
 
   let statsTime = 0
-  stage.onTick((dt, time) => {
-    rig.update(dt)
+  stage.onTick((realDt, time) => {
+    const dt = timeline.paused ? 0 : realDt
+    rig.update(realDt)
+    timeline.tick(realDt)
+    timelineBar.update()
     picker.update()
     lights.update(dt, world.order, rig.controls.target)
     stage.followShadow(rig.controls.target, rig.distance)
-    world.updateView(dt, stage.camera, rig.controls.target)
+    world.updateView(realDt, stage.camera, rig.controls.target)
     packages.setShadows(world.anyNear)
     viewProjection.multiplyMatrices(stage.camera.projectionMatrix, stage.camera.matrixWorldInverse)
     frustum.setFromProjectionMatrix(viewProjection)
@@ -254,14 +319,13 @@ function boot() {
     tickRollers(dt)
     highlighter.tick(time)
     packages.tick(dt, frustum)
-    fx.tick(dt)
-    statsTime += dt
+    tags.tick(dt)
+    statsTime += realDt
     if (statsTime >= 1) {
       hud.setStats({
         flows: Math.round(traffic.counter / statsTime),
         parcels: packages.count,
-        procs: Math.round(fx.counter / statsTime),
-        draws: stage.renderer.info.render.calls
+        procs: Math.round(fx.counter / statsTime)
       })
       if (selected?.type === 'pod') hud.showDetails(describe(selected))
       panel.setActivity(traffic.activeNamespaces())

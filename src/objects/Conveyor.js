@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { block } from './primitives.js'
-import { surface } from '../theme/materials.js'
+import { surface, ownedSurface } from '../theme/materials.js'
 import { hazardMaterial, rollerTexture } from '../theme/textures.js'
 import { palette } from '../theme/palette.js'
 
@@ -27,12 +27,13 @@ export class Conveyor extends THREE.Group {
     this.position.copy(a).add(b).multiplyScalar(0.5)
     this.rotation.y = -Math.atan2(dir.z, dir.x)
 
-    const frame = block(length + 0.6, 0.3, 1.25, surface(palette.trim), { radius: 0.1, shared: false })
+    this.heatMaterial = ownedSurface(palette.trim, { emissive: palette.heat, emissiveIntensity: 0 })
+    const frame = block(length + 0.6, 0.3, 1.25, this.heatMaterial, { radius: 0.1, shared: false })
     frame.position.y = -0.4
     this.add(frame)
 
     for (const z of [-0.6, 0.6]) {
-      const rail = block(length + 0.6, 0.18, 0.12, surface(palette.metal), { radius: 0.04, shared: false })
+      const rail = block(length + 0.6, 0.18, 0.12, this.heatMaterial, { radius: 0.04, shared: false })
       rail.position.set(0, -0.12, z)
       this.add(rail)
     }
@@ -57,5 +58,9 @@ export class Conveyor extends THREE.Group {
       band.position.set(x, -a.y + 0.45, 0)
       this.add(pillar, band)
     }
+  }
+
+  setHeat(heat) {
+    this.heatMaterial.emissiveIntensity = heat * 1.6
   }
 }

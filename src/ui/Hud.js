@@ -12,20 +12,27 @@ const TEMPLATE = `
     <div><b data-stat="flows">0</b><span>flows/s</span></div>
     <div><b data-stat="parcels">0</b><span>parcels</span></div>
     <div><b data-stat="procs">0</b><span>proc/s</span></div>
-    <div><b data-stat="draws">0</b><span>draws</span></div>
   </div>
   <div class="ns-panel"></div>
-  <div class="panel log"><h4>Live events</h4><ul></ul></div>
-  <div class="panel details hidden"></div>
+  <div class="right-col">
+    <div class="alert-panel"></div>
+    <div class="panel log"><h4>Live events</h4><ul></ul></div>
+    <div class="panel details hidden"></div>
+    <div class="perf-panel"></div>
+  </div>
+  <input class="flow-search" type="search" placeholder="Filter flows by pod or namespace, Enter to fly there" spellcheck="false" />
+  <div class="timeline-panel"></div>
   <div class="tooltip hidden"></div>
   <div class="legend">
-    <span><i style="--c:#c6e86e"></i>TCP</span>
-    <span><i style="--c:#aedaf6"></i>UDP</span>
-    <span><i style="--c:#f6bbe6"></i>HTTP</span>
-    <span><i style="--c:#ffd5a0"></i>ICMP</span>
-    <span><i style="--c:#ff4d61"></i>Dropped</span>
+    <button data-kind="TCP"><i style="--c:#c6e86e"></i>TCP</button>
+    <button data-kind="UDP"><i style="--c:#aedaf6"></i>UDP</button>
+    <button data-kind="HTTP"><i style="--c:#f6bbe6"></i>HTTP</button>
+    <button data-kind="DNS"><i style="--c:#9fc9ff"></i>DNS</button>
+    <button data-kind="ICMP"><i style="--c:#ffd5a0"></i>ICMP</button>
+    <button data-kind="Dropped"><i style="--c:#ff4d61"></i>Dropped</button>
+    <span class="legend-fence">Fence: <i style="--c:#c6e86e"></i>in + out <i style="--c:#aedaf6"></i>in <i style="--c:#ffd5a0"></i>out</span>
   </div>
-  <div class="help">WASD pan · Q/E rotate · R/F zoom · Shift faster · Click select · Double click or 1-9 focus · N namespaces · B nodes · Esc overview</div>
+  <div class="help">WASD pan · Q/E rotate · R/F zoom · Shift faster · Click select · Double click or 1-9 focus · N namespaces · B nodes · Space pause · Esc overview</div>
   <div class="nav">
     <button data-step="-1" aria-label="previous">‹</button>
     <span class="nav-label">Overview</span>
@@ -51,6 +58,18 @@ export class Hud {
     this.tooltip = root.querySelector('.tooltip')
     this.navLabel = root.querySelector('.nav-label')
     this.namespaceRoot = root.querySelector('.ns-panel')
+    this.alertRoot = root.querySelector('.alert-panel')
+    this.perfRoot = root.querySelector('.perf-panel')
+    this.timelineRoot = root.querySelector('.timeline-panel')
+    this.search = root.querySelector('.flow-search')
+    this.onKindToggle = () => {}
+    root.querySelectorAll('.legend button').forEach(button =>
+      button.addEventListener('click', () => {
+        button.classList.toggle('off')
+        button.blur()
+        this.onKindToggle(button.dataset.kind, !button.classList.contains('off'))
+      })
+    )
     this.onStep = () => {}
     root.querySelectorAll('.nav button').forEach(b => b.addEventListener('click', () => this.onStep(Number(b.dataset.step))))
   }

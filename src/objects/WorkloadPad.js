@@ -4,8 +4,10 @@ import { surface } from '../theme/materials.js'
 import { hazardMaterial } from '../theme/textures.js'
 import { palette } from '../theme/palette.js'
 
+const RAIL_Y = 0.8
+
 export class WorkloadPad extends THREE.Group {
-  constructor(workload, width, depth, ns) {
+  constructor(workload, width, depth, ns, fence = null) {
     super()
     const frame = block(width, 0.14, depth, hazardMaterial(width / 1.4, depth / 1.4), { radius: 0.05 })
     frame.position.y = 0.07
@@ -30,6 +32,31 @@ export class WorkloadPad extends THREE.Group {
       this.add(leg)
     }
     this.add(sign)
+    if (fence) this.buildFence(width, depth, fence)
     this.userData.pick = { type: 'workload', id: workload.key, ns }
+  }
+
+  buildFence(width, depth, color) {
+    const material = surface(color, { roughness: 0.4 })
+    const inset = 0.2
+    const w = width / 2 - inset
+    const d = depth / 2 - inset
+    for (const z of [-d, d]) {
+      const rail = block(width - inset * 2, 0.1, 0.1, material, { radius: 0.03 })
+      rail.position.set(0, RAIL_Y, z)
+      this.add(rail)
+    }
+    for (const x of [-w, w]) {
+      const rail = block(0.1, 0.1, depth - inset * 2, material, { radius: 0.03 })
+      rail.position.set(x, RAIL_Y, 0)
+      this.add(rail)
+    }
+    for (const x of [-w, w]) {
+      for (const z of [-d, d]) {
+        const post = block(0.14, RAIL_Y, 0.14, material, { radius: 0.03 })
+        post.position.set(x, RAIL_Y / 2, z)
+        this.add(post)
+      }
+    }
   }
 }

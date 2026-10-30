@@ -5,6 +5,7 @@ import { hazardMaterial } from '../theme/textures.js'
 import { palette } from '../theme/palette.js'
 
 const SINK_DEPTH = 5
+const ALERT_TIME = 20
 
 export class PodStation extends THREE.Group {
   constructor(pod, label) {
@@ -80,6 +81,19 @@ export class PodStation extends THREE.Group {
     this.glide = { from: position.clone(), t: 0 }
   }
 
+  raiseAlert(severity) {
+    if (!this.beacon) {
+      this.beaconMaterial = ownedSurface(palette.alert[severity], { emissive: palette.alert[severity], emissiveIntensity: 2 })
+      this.beacon = block(0.5, 0.5, 0.5, this.beaconMaterial, { radius: 0.2, shadow: false })
+      this.beacon.position.y = this.bodyHeight + 1
+      this.body.add(this.beacon)
+    } else if (severity === 'high') {
+      this.beaconMaterial.color.set(palette.alert.high)
+      this.beaconMaterial.emissive.set(palette.alert.high)
+    }
+    this.alertTime = ALERT_TIME
+  }
+
   pulse(color) {
     this.flash = 1
     this.lampMaterial.emissive.set(color)
@@ -91,6 +105,16 @@ export class PodStation extends THREE.Group {
 
   tick(dt) {
     this.position.copy(this.home)
+    if (this.beacon) {
+      this.alertTime -= dt
+      this.beacon.rotation.y += dt * 4
+      this.beaconMaterial.emissiveIntensity = 1.5 + Math.sin(this.alertTime * 9) * 1.2
+      if (this.alertTime <= 0) {
+        this.body.remove(this.beacon)
+        this.beaconMaterial.dispose()
+        this.beacon = null
+      }
+    }
     if (this.glide) {
       this.glide.t = Math.min(1, this.glide.t + dt / 0.7)
       this.position.lerpVectors(this.glide.from, this.home, this.glide.t * this.glide.t * (3 - 2 * this.glide.t))

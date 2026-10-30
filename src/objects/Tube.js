@@ -11,6 +11,8 @@ const material = new THREE.MeshStandardMaterial({
 const ringMaterial = new THREE.MeshStandardMaterial({ color: palette.metal, roughness: 0.5 })
 const ring = new THREE.TorusGeometry(0.62, 0.14, 10, 28)
 const SEGMENTS = 48
+const baseColor = new THREE.Color(palette.tube)
+const heatColor = new THREE.Color(palette.heat)
 const CONTROLS = ['v0', 'v1', 'v2', 'v3']
 
 function arc(a, b) {
@@ -34,13 +36,20 @@ export class Tube extends THREE.Group {
     this.from = null
     this.to = null
     this.next = null
-    this.mesh = new THREE.Mesh(geometryOf(this.curve), material)
+    this.material = material.clone()
+    this.material.userData.owned = true
+    this.mesh = new THREE.Mesh(geometryOf(this.curve), this.material)
     this.mesh.renderOrder = 2
     this.mesh.frustumCulled = false
     this.caps = [new THREE.Mesh(ring, ringMaterial), new THREE.Mesh(ring, ringMaterial)]
     this.caps.forEach(cap => (cap.castShadow = true))
     this.add(this.mesh, ...this.caps)
     this.placeCaps()
+  }
+
+  setHeat(heat) {
+    this.material.opacity = 0.18 + heat * 0.32
+    this.material.color.copy(baseColor).lerp(heatColor, heat)
   }
 
   placeCaps() {

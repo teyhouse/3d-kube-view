@@ -314,8 +314,11 @@ export class ClusterWorld {
           ['IP', p.ip ?? 'none'],
           ['Node', p.node ?? 'none'],
           ['Workload', p.workload],
-          ['Containers', p.containers.join(', ')]
-        ]
+          ['Containers', p.containers.join(', ')],
+          ['Ingress', p.policy?.ingress ?? 'unknown'],
+          ['Egress', p.policy?.egress ?? 'unknown']
+        ],
+        sections: [{ title: 'Network policies', items: p.policy?.names ?? [] }]
       }
     }
     if (pick.type === 'workload') {
@@ -345,7 +348,8 @@ export class ClusterWorld {
           ['Workloads', room.workloads.size],
           ['Pods', room.pods.size],
           ['Services', room.services.size]
-        ]
+        ],
+        sections: [{ title: 'Network policies', items: (room.data.policies ?? []).map(policy => `${policy.name} (in: ${policy.ingress}, out: ${policy.egress})`) }]
       }
     }
     if (pick.type === 'portal') return { title: pick.name, subtitle: pick.kind === 'namespace' ? 'Namespace (not rendered)' : 'External endpoint', rows: [] }

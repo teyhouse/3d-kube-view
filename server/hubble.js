@@ -18,7 +18,7 @@ export function startHubble(namespaces, { onFlows, onStatus, replay = 0 }) {
     const flow = msg.flow
     if (!flow?.IP || flow.Type === 'SOCK') return
     const summary = summarize(flow)
-    const key = `${summary.srcId}|${summary.dstId}|${summary.proto}|${summary.port}|${summary.verdict}|${summary.reply}`
+    const key = `${summary.srcId}|${summary.dstId}|${summary.proto}|${summary.port}|${summary.verdict}|${summary.reply}|${summary.label}|${summary.code}|${summary.dropReason}`
     const entry = batch.get(key)
     if (entry) entry.count++
     else if (batch.size < MAX_BATCH) batch.set(key, { ...summary, count: 1 })
@@ -72,6 +72,7 @@ function summarize(flow) {
     port = ports.source_port ?? null
   }
   const l7 = flow.l7?.http ? 'http' : flow.l7?.dns ? 'dns' : null
+  const detail = l7Detail(flow.l7)
   return {
     src,
     dst,
@@ -81,7 +82,26 @@ function summarize(flow) {
     l7,
     port,
     verdict: flow.verdict ?? 'UNKNOWN',
-    reply
+    reply,
+    ...detail,
+    dropReason: flow.verdict === 'DROPPED' ? flow.drop_reason_desc ?? null : null
+  }
+}
+
+function l7Detail(l7) {
+  if (!l7) return { label: null, code: null, l7Type: null, latencyMs: null }
+  const latencyMs = l7.latency_ns ? Number(l7.latency_ns) / 1e6 : null
+  const l7Type = l7.type ?? null
+  if (l7.dns) return { label: (l7.dns.query ?? '').replace(/\.$/, ''), code: l7.dns.rcode ?? null, l7Type, latencyMs }
+  if (l7.http) return { label: `${l7.http.method ?? ''} ${pathOf(l7.http.url)}`.trim(), code: l7.http.code ?? null, l7Type, latencyMs }
+  return { label: null, code: null, l7Type, latencyMs }
+}
+
+function pathOf(url = '') {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return url.split('?')[0]
   }
 }
 

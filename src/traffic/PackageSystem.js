@@ -53,6 +53,11 @@ export class PackageSystem {
     return true
   }
 
+  clear() {
+    this.pool.push(...this.active)
+    this.active.length = 0
+  }
+
   retarget(remaps) {
     if (!remaps.size) return
     for (const p of this.active) {

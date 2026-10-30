@@ -23,6 +23,7 @@ const LABEL_MIN = 0.6
 const FOOTPRINT = 1.5
 const AISLE = CELL / 2
 const GATE_LANE = 2
+const ROOM_ALERT_TIME = 20
 const SUMMARY_CELL = 1.7
 const SUMMARY_POD = new THREE.BoxGeometry(1.2, 1, 1.2)
 const summaryDummy = new THREE.Object3D()
@@ -135,7 +136,7 @@ export class NamespaceRoom extends THREE.Group {
     const title = textPlane(this.namespace.toUpperCase(), 1.3, { color: '#e3d8ff', maxWidth: Math.min(W * 0.45, 12) })
     title.position.set(W / 2 - 4.2, WALL_H - 5.6, wallZ)
 
-    const sideLabel = textPlane(`←  ${this.data.pods.length} PODS  →`, 1, { color: palette.textOnWall, maxWidth: D * 0.6 })
+    const sideLabel = textPlane(`←  ${this.data.pods.length} PODS · ${(this.data.policies ?? []).length} POLICIES  →`, 1, { color: palette.textOnWall, maxWidth: D * 0.6 })
     sideLabel.rotation.y = Math.PI / 2
     sideLabel.position.set(-W / 2 + WALL_T + 0.02, 7.6, 0)
 
@@ -162,7 +163,7 @@ export class NamespaceRoom extends THREE.Group {
   buildContent({ items }) {
     const statics = []
     for (const item of items) {
-      const pad = new WorkloadPad(item.workload, item.w, item.d, this.namespace)
+      const pad = new WorkloadPad(item.workload, item.w, item.d, this.namespace, fenceColor(item.pods))
       pad.position.set(item.cx, 0, item.cz)
       this.obstacles.push({ x: item.cx, z: item.cz + item.d / 2 - 0.55, hx: Math.min(item.w - 0.6, 4.4) / 2 + 0.3, hz: 0.5 })
       this.detail.add(pad)
@@ -197,6 +198,11 @@ export class NamespaceRoom extends THREE.Group {
     const sign = textSprite(this.namespace, 3.2, { color: palette.text, background: '#2a2150', weight: 600 })
     sign.position.y = WALL_H + 4
     this.summary.add(sign)
+    this.alertSign = textSprite('!', 6, { color: '#ffffff', background: '#2a2150', weight: 700 })
+    this.alertSign.position.y = WALL_H + 9
+    this.alertSign.visible = false
+    this.alertTime = 0
+    this.summary.add(this.alertSign)
     if (pods.length) {
       const cols = Math.ceil(Math.sqrt(pods.length))
       const mesh = new THREE.InstancedMesh(SUMMARY_POD, surface(0xffffff), pods.length)
@@ -213,6 +219,13 @@ export class NamespaceRoom extends THREE.Group {
       this.summary.add(mesh)
     }
     this.add(this.summary)
+  }
+
+  raiseAlert(pod, severity) {
+    this.stations.get(pod)?.raiseAlert(severity)
+    this.alertSign.material.color.set(palette.alert[severity])
+    this.alertTime = ROOM_ALERT_TIME
+    this.alertSign.visible = true
   }
 
   setFar(far) {
@@ -313,6 +326,10 @@ export class NamespaceRoom extends THREE.Group {
       disposeTree(station)
       this.leaving.splice(i, 1)
     }
+    if (this.alertTime > 0) {
+      this.alertTime -= dt
+      if (this.alertTime <= 0) this.alertSign.visible = false
+    }
     this.easeWall(this.backWall, this.cutBack, dt)
     this.easeWall(this.leftWall, this.cutLeft, dt)
   }
@@ -326,6 +343,15 @@ export class NamespaceRoom extends THREE.Group {
       if (owner === wall) labels.forEach(label => (label.visible = wall.scale.y > LABEL_MIN && !(this.far && this.smallLabels.includes(label))))
     }
   }
+}
+
+function fenceColor(pods) {
+  if (!pods.length) return null
+  const ingress = pods.every(pod => pod.policy?.ingress === 'restricted')
+  const egress = pods.every(pod => pod.policy?.egress === 'restricted')
+  if (ingress && egress) return palette.fence.both
+  if (ingress) return palette.fence.ingress
+  return egress ? palette.fence.egress : null
 }
 
 function shortName(pod, workload) {

@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { Tube } from '../objects/Tube.js'
 import { HATCH } from '../objects/NamespaceRoom.js'
 import { disposeTree } from '../objects/primitives.js'
@@ -12,9 +13,22 @@ const HATCH_PACE = 0.45
 const MAX_SEED_PARCELS = 160
 const FAR_SPAWN_GAP_MS = 1000
 const MAX_CONNECTIONS = 8
+const TAG_GAP_MS = 2500
+const MAX_L7_RECENT = 8
+const HEAT_DECAY = 0.7
+const HEAT_RANGE = 8
+const HEAT_INTERVAL_MS = 1000
+const DROP_PROGRESS = 0.5
+
+const dropPoint = new THREE.Vector3()
 
 export class TrafficSystem {
-  constructor(world, root, packages) {
+  constructor(world, root, packages, tags, filter) {
+    this.tags = tags
+    this.filter = filter
+    this.tagTimes = new Map()
+    this.l7Recent = new Map()
+    this.dropCounter = 0
     this.world = world
     this.root = root
     this.packages = packages
@@ -24,6 +38,7 @@ export class TrafficSystem {
     this.moving = new Set()
     this.counter = 0
     this.lastSweep = 0
+    this.lastHeat = 0
     this.activity = new Map()
   }
 
@@ -106,7 +121,7 @@ export class TrafficSystem {
     const second = Math.floor(now / 1000)
     let edge = this.history.get(key)
     if (!edge) {
-      edge = { flow, last: now, second, buckets: new Uint32Array(HISTORY_SECONDS) }
+      edge = { flow, last: now, second, buckets: new Uint32Array(HISTORY_SECONDS), latency: null, drops: 0, reason: null }
       this.history.set(key, edge)
     }
     const gap = second - edge.second
@@ -116,6 +131,11 @@ export class TrafficSystem {
     edge.flow = flow
     edge.last = now
     edge.buckets[second % HISTORY_SECONDS] += flow.count
+    if (flow.latencyMs) edge.latency = edge.latency === null ? flow.latencyMs : edge.latency * 0.8 + flow.latencyMs * 0.2
+    if (flow.verdict === 'DROPPED') {
+      edge.drops += flow.count
+      edge.reason = flow.dropReason ?? edge.reason
+    }
   }
 
   handle(flows) {
@@ -125,10 +145,16 @@ export class TrafficSystem {
       if (flow.src.ns) this.activity.set(flow.src.ns, now)
       if (flow.dst.ns) this.activity.set(flow.dst.ns, now)
       this.record(flow, this.keyOf(flow), now)
+      if (flow.label) this.rememberL7(flow)
       const route = this.route(flow, now)
       if (!route) continue
       route.lastUsed = now
-      route.parts.forEach(part => (part.lastUsed = now))
+      route.parts.forEach(part => {
+        part.lastUsed = now
+        part.flows = (part.flows ?? 0) + flow.count
+      })
+      if (!this.filter.accepts(flow)) continue
+      this.showTags(route, flow, now)
       route.pending += flow.count
       const far = route.namespaces.every(ns => this.world.rooms.get(ns)?.far ?? true)
       if (far && flow.reply) continue
@@ -139,17 +165,89 @@ export class TrafficSystem {
     }
   }
 
+  rememberL7(flow) {
+    const owner = flow.reply ? flow.dst : flow.src
+    if (owner.kind !== 'pod') return
+    const key = `${owner.ns}/${owner.name}`
+    const list = this.l7Recent.get(key) ?? []
+    const code = flow.code === null ? '' : ` ${flow.code}`
+    const latency = flow.latencyMs ? ` ${flow.latencyMs.toFixed(1)} ms` : ''
+    const text = `${flow.l7} ${flow.label}${code}${latency}`
+    if (list[0] === text) return
+    list.unshift(text)
+    list.length = Math.min(list.length, MAX_L7_RECENT)
+    this.l7Recent.set(key, list)
+  }
+
+  recentL7(ns, pod) {
+    return this.l7Recent.get(`${ns}/${pod}`) ?? []
+  }
+
+  throttled(key, now) {
+    if (now - (this.tagTimes.get(key) ?? 0) < TAG_GAP_MS) return true
+    this.tagTimes.set(key, now)
+    return false
+  }
+
+  showTags(route, flow, now) {
+    if (flow.verdict === 'DROPPED') {
+      if (!this.throttled(`drop:${flow.srcId}>${flow.dstId}`, now)) this.dropTag(route, flow)
+      return
+    }
+    if (!flow.label) return
+    const failed = flow.l7 === 'http' ? flow.code >= 400 : flow.l7 === 'dns' && flow.code > 0
+    if (!failed && flow.l7Type === 'RESPONSE') return
+    const owner = flow.reply ? flow.dst : flow.src
+    const room = owner.kind === 'pod' ? this.world.rooms.get(owner.ns) : null
+    if (!room || room.far || !room.stations.has(owner.name)) return
+    if (this.throttled(`l7:${owner.ns}/${owner.name}:${flow.label}:${failed}`, now)) return
+    const text = failed ? `${flow.label} ${flow.code}` : flow.label
+    const color = failed ? palette.dropped : palette.parcels[flow.l7]
+    this.tags.add(text, color, room.portWorld(owner.name), { ns: owner.ns, size: 0.6 })
+  }
+
+  dropTag(route, flow) {
+    const leg = route.path.sample(DROP_PROGRESS, dropPoint)
+    if (route.path.legs[leg]?.room?.far) return
+    this.tags.add(flow.dropReason ?? 'dropped', palette.dropped, dropPoint, { ns: flow.src.ns ?? flow.dst.ns, life: 4, size: 0.9 })
+  }
+
+  updateHeat() {
+    const apply = part => {
+      part.rate = (part.rate ?? 0) * HEAT_DECAY + (part.flows ?? 0) * (1 - HEAT_DECAY)
+      part.flows = 0
+      part.object.setHeat?.(Math.min(1, Math.log2(1 + part.rate) / HEAT_RANGE))
+    }
+    for (const part of this.tubes.values()) apply(part)
+    for (const room of this.world.order) {
+      if (!room.far) room.belts.lanes.forEach(apply)
+    }
+  }
+
   connections(ns, pod) {
     const id = `pod:${ns}/${pod}`
     const totals = new Map()
-    for (const { flow, buckets } of this.history.values()) {
+    for (const { flow, buckets, latency, drops, reason } of this.history.values()) {
       if (flow.reply || (flow.srcId !== id && flow.dstId !== id)) continue
       const out = flow.srcId === id
       const peer = out ? flow.dstId : flow.srcId
       const label = `${out ? 'to' : 'from'} ${peer.replace('pod:', '')}${flow.port ? `:${flow.port}` : ''}`
-      totals.set(label, (totals.get(label) ?? 0) + buckets.reduce((sum, n) => sum + n, 0))
+      const entry = totals.get(label) ?? { n: 0, latency: null, drops: 0, reason: null }
+      entry.n += buckets.reduce((sum, n) => sum + n, 0)
+      entry.latency = latency ?? entry.latency
+      entry.drops += drops
+      entry.reason = reason ?? entry.reason
+      totals.set(label, entry)
     }
-    return [...totals].sort((a, b) => b[1] - a[1]).slice(0, MAX_CONNECTIONS).map(([label, n]) => `${label} (${n})`)
+    return [...totals]
+      .sort((a, b) => b[1].n - a[1].n)
+      .slice(0, MAX_CONNECTIONS)
+      .map(([label, e]) => {
+        const parts = [String(e.n)]
+        if (e.latency !== null) parts.push(`${e.latency.toFixed(1)} ms`)
+        if (e.drops) parts.push(`${e.drops} dropped: ${e.reason ?? 'unknown'}`)
+        return `${label} (${parts.join(', ')})`
+      })
   }
 
   spawn(route, flow, n, now, fat = null) {
@@ -157,7 +255,8 @@ export class TrafficSystem {
     route.lastSpawn = now
     route.parts.forEach(part => (part.lastUsed = now))
     const dropped = flow.verdict === 'DROPPED'
-    const color = dropped ? palette.dropped : palette.parcels[flow.l7] ?? palette.parcels[flow.proto] ?? palette.parcels.other
+    const httpError = flow.l7 === 'http' && flow.code >= 400
+    const color = dropped ? palette.dropped : httpError ? palette.httpError : palette.parcels[flow.l7] ?? palette.parcels[flow.proto] ?? palette.parcels.other
     for (let i = 0; i < n; i++) {
       this.packages.spawn(route, {
         color,
@@ -268,6 +367,10 @@ export class TrafficSystem {
     }
 
     const now = performance.now()
+    if (now - this.lastHeat >= HEAT_INTERVAL_MS) {
+      this.lastHeat = now
+      this.updateHeat()
+    }
     if (now - this.lastSweep < SWEEP_MS) return
     this.lastSweep = now
     this.sweep(now)
@@ -279,6 +382,9 @@ export class TrafficSystem {
     }
     for (const [key, edge] of this.history) {
       if (now - edge.last > HISTORY_SECONDS * 1000) this.history.delete(key)
+    }
+    for (const [key, time] of this.tagTimes) {
+      if (now - time > TAG_GAP_MS) this.tagTimes.delete(key)
     }
     this.dropUnusedTubes()
     for (const room of this.world.order) room.belts.prune(now, IDLE_MS)

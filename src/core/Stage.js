@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { palette } from '../theme/palette.js'
+import { GpuTimer } from './GpuTimer.js'
 
 const SUN_DIR = new THREE.Vector3(0.55, 1, 0.7).normalize()
 
@@ -32,6 +33,8 @@ export class Stage {
     this.scene.add(hemi, this.sun, this.sun.target)
 
     this.callbacks = []
+    this.gpuTimer = new GpuTimer(this.renderer)
+    this.onFrame = () => {}
     this.resize()
     addEventListener('resize', () => this.resize())
   }
@@ -65,10 +68,16 @@ export class Stage {
   start() {
     let last = performance.now()
     this.renderer.setAnimationLoop(now => {
-      const dt = Math.min((now - last) / 1000, 0.1)
+      const frameMs = now - last
+      const dt = Math.min(frameMs / 1000, 0.1)
       last = now
+      const start = performance.now()
       for (const fn of this.callbacks) fn(dt, now / 1000)
+      this.gpuTimer.poll()
+      this.gpuTimer.begin()
       this.renderer.render(this.scene, this.camera)
+      this.gpuTimer.end()
+      this.onFrame({ frameMs, cpuMs: performance.now() - start })
     })
   }
 }
