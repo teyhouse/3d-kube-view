@@ -1,10 +1,14 @@
 # 3D Kube View
 
-A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Namespaces are rooms, pods are machines, and real network flows from Cilium Hubble travel as parcels on conveyor belts. Tetragon process events light up the machines as they happen.
+A live, explorable 3D diorama of a Kubernetes cluster built with three.js. Namespaces are rooms, pods are machines, and real network flows from Cilium Hubble travel as parcels on conveyor belts. When Tetragon reports a process event, the machine's lamp flashes and the process name floats above it.
+
+This app is meant to run locally on your workstation, not in the cluster.
 
 ![Cluster overview](assets/overview.png)
 
 ![Namespace close-up](assets/room.png)
+
+The low fps in these screenshots come from headless Chrome, which renders in software. In a normal browser the app is optimized to hold stable frame rates.
 
 ## How it maps
 
