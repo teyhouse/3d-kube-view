@@ -2,7 +2,15 @@
   "name": "3d-kube-view",
   "private": true,
   "version": "0.1.0",
+  "description": "Live 3D view of a Kubernetes cluster with Cilium Hubble flows and Tetragon events, built with three.js",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teyhouse/3d-kube-view.git"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

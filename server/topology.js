@@ -1,10 +1,10 @@
-import { run } from './kubectl.js'
+import { listAll, run } from './kubectl.js'
 import { fetchPolicies, policyForPod, policiesInNamespace } from './policies.js'
 import { fetchRoutes, findEntryPoints } from './entrypoints.js'
 
 const KINDS = 'pods,services,deployments,statefulsets,daemonsets,replicasets,jobs'
 const CONTROLLERS = new Set(['Deployment', 'StatefulSet', 'DaemonSet'])
-const FLUX_KINDS = 'kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io'
+const FLUX_KINDS = ['kustomizations.kustomize.toolkit.fluxcd.io', 'helmreleases.helm.toolkit.fluxcd.io']
 const KUSTOMIZATION_LABEL = 'kustomize.toolkit.fluxcd.io/name'
 const FLUX_CACHE_MS = 60000
 
@@ -12,9 +12,7 @@ let fluxCache = { at: 0, items: [] }
 
 async function fetchFlux() {
   if (Date.now() - fluxCache.at < FLUX_CACHE_MS) return fluxCache.items
-  const items = await run(['get', FLUX_KINDS, '-A', '-o', 'json'])
-    .then(raw => JSON.parse(raw).items)
-    .catch(() => [])
+  const items = await listAll(FLUX_KINDS)
   fluxCache = { at: Date.now(), items }
   return items
 }

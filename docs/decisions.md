@@ -4,6 +4,7 @@
 
 - **Local only.** The app runs on a workstation with `kubectl` access. Running it in the cluster with a ServiceAccount and Hubble Relay is not a goal.
 - **Everything comes through `kubectl`.** Nothing is installed in the cluster.
+- **The API only answers on localhost.** Requests to `/api/` with any other `Host` header get a 403, which blocks DNS rebinding from a malicious website.
 - **Districts come from Flux.** Namespace labels are nearly all the same (`kustomize...name=namespaces`), the top level directory of the Kustomization `spec.path` is meaningful. Clusters without Flux get `system` and `other`.
 - **Gates are inferred.** A flow uses a gate when its destination pod and port match a service backend and `targetPort`. Node probes and replies skip the gate.
 - **Tags instead of parcel stickers.** Floating tags turned out more readable for DNS and HTTP.
@@ -45,6 +46,10 @@ It appeared on 2 of 1500 sampled flows, both `SOCK` traces without a destination
 ### Tunnels dial out
 
 A tunnel such as `cloudflared` receives its traffic over outbound connections, so its flows appear as pod to Internet. The dock routes both directions through the bay.
+
+### One missing kind fails a whole `kubectl get`
+
+`kubectl get a,b` errors out if `b` is not installed. Optional kinds are therefore fetched one by one with `listAll`.
 
 ### Three.js
 

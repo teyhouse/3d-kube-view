@@ -42,14 +42,14 @@ export function startTetragon(namespaces, { onEvents, onStatus }) {
 
   ;(async () => {
     try {
-      const pods = await listPods('kube-system', 'app.kubernetes.io/name=tetragon')
+      const pods = await listPods(config.tetragonNamespace, config.tetragonSelector)
       if (stopped) return
       if (!pods.length) return onStatus('error', 'no tetragon pods found')
       onStatus('pending', `connecting to ${pods.length} agent(s)`)
       const filters = namespaces.flatMap(ns => ['--namespace', ns])
       for (const pod of pods) {
         stops.push(
-          supervise(execStream(pod, 'tetragon', ['tetra', 'getevents', '-o', 'json', ...filters]), {
+          supervise(execStream(config.tetragonNamespace, pod, 'tetragon', ['tetra', 'getevents', '-o', 'json', ...filters]), {
             onLine: ingest,
             onStart: () => onStatus('ok', `${pods.length} agent(s)`),
             onError: message => onStatus('error', message)

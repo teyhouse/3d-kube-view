@@ -203,7 +203,7 @@ export class TrafficSystem {
     const owner = flow.reply ? flow.dst : flow.src
     const room = owner.kind === 'pod' ? this.world.rooms.get(owner.ns) : null
     if (!room || room.far || !room.stations.has(owner.name)) return
-    if (this.throttled(`l7:${owner.ns}/${owner.name}:${flow.label}:${failed}`, now)) return
+    if (this.throttled(`l7:${owner.ns}:${flow.label}:${failed}`, now)) return
     const text = failed ? `${flow.label} ${flow.code}` : flow.label
     const color = failed ? palette.dropped : palette.parcels[flow.l7]
     this.tags.add(text, color, room.portWorld(owner.name), { ns: owner.ns, size: 0.6 })

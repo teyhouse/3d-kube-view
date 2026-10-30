@@ -1,6 +1,6 @@
-import { run } from './kubectl.js'
+import { listAll } from './kubectl.js'
 
-const KINDS = 'ingresses.networking.k8s.io,httproutes.gateway.networking.k8s.io'
+const KINDS = ['ingresses.networking.k8s.io', 'httproutes.gateway.networking.k8s.io']
 const CACHE_MS = 60000
 const GATEWAY_LABELS = ['gateway.envoyproxy.io/owning-gateway-name', 'gateway.networking.k8s.io/gateway-name', 'istio.io/gateway-name']
 const TUNNEL = /cloudflared|tailscale|ngrok|frpc|inlets/
@@ -9,9 +9,7 @@ let cache = { at: 0, items: [] }
 
 export async function fetchRoutes() {
   if (Date.now() - cache.at < CACHE_MS) return cache.items
-  const items = await run(['get', KINDS, '-A', '-o', 'json'])
-    .then(raw => JSON.parse(raw).items)
-    .catch(() => [])
+  const items = await listAll(KINDS)
   cache = { at: Date.now(), items }
   return items
 }

@@ -16,7 +16,7 @@ kubectl ─┬─ get pods, services, controllers, policies, routes, Flux (poll 
 
 | File | Purpose |
 | --- | --- |
-| `config.js` | `NAMESPACES` allowlist (empty means all), `PORT`, `KUBECTL`, `KUBE_CONTEXT` |
+| `config.js` | `NAMESPACES` allowlist (empty means all), `PORT`, `KUBECTL`, `KUBE_CONTEXT`, `DEMO`, agent namespaces and selectors |
 | `kubectl.js` | Run commands, supervise streams with backoff, remote watchdog, stop children on exit |
 | `topology.js` | Fetch resources, resolve pod to workload, match services, compute districts |
 | `policies.js` | Evaluate Cilium and Kubernetes network policies per pod (cached 30s) |
@@ -24,7 +24,8 @@ kubectl ─┬─ get pods, services, controllers, policies, routes, Flux (poll 
 | `hubble.js` | Normalize endpoints, drop reasons and L7 details, merge flows into batches |
 | `tetragon.js` | Normalize process events, classify alerts |
 | `hub.js` | SSE clients, stream lifecycle, per client filter, stream restarts on selection changes |
-| `api.js` | Middleware shared by the Vite dev server and the production server |
+| `demo.js` | Simulated cluster for `./start.sh demo`, same events as `hub.js` |
+| `api.js` | Middleware shared by the Vite dev server and the production server, localhost check |
 | `index.js` | Production server, serves `dist/` on `127.0.0.1` |
 
 Streams start with the first browser tab and stop 15 seconds after the last one closes. Clients report their hidden namespaces with `POST /api/selection`. The hub then streams the union of what is visible, with a short overlap and `--last 200` so a newly shown namespace has traffic right away.

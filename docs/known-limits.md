@@ -2,7 +2,7 @@
 
 ## Not yet seen on real data
 
-The development cluster did not produce these, they only ran against mock data:
+The development cluster did not produce these, they only ran against the demo data:
 
 - More than one node.
 - Policy drops and their signs.
@@ -24,7 +24,3 @@ The development cluster did not produce these, they only ran against mock data:
 - Hidden namespaces are not streamed, so their activity dots only react to traffic that touches a visible namespace, and replay has no data for them.
 - Tetragon events without a pod (host processes) are ignored.
 - Entry point detection for tunnels depends on the workload name (`cloudflared`, `tailscale`, `ngrok`, `frpc`, `inlets`).
-
-## Security
-
-- The server listens on `127.0.0.1`, but does not check the `Host` header. A malicious website could use DNS rebinding to read `/api/events` from the browser while the app runs, which exposes topology, flows and process events.

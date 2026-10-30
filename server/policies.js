@@ -1,6 +1,6 @@
-import { run } from './kubectl.js'
+import { listAll } from './kubectl.js'
 
-const KINDS = 'ciliumnetworkpolicies.cilium.io,ciliumclusterwidenetworkpolicies.cilium.io,networkpolicies.networking.k8s.io'
+const KINDS = ['ciliumnetworkpolicies.cilium.io', 'ciliumclusterwidenetworkpolicies.cilium.io', 'networkpolicies.networking.k8s.io']
 const CACHE_MS = 30000
 const NAMESPACE_LABEL = 'io.kubernetes.pod.namespace'
 
@@ -8,9 +8,7 @@ let cache = { at: 0, items: [] }
 
 export async function fetchPolicies() {
   if (Date.now() - cache.at < CACHE_MS) return cache.items
-  const items = await run(['get', KINDS, '-A', '-o', 'json'])
-    .then(raw => JSON.parse(raw).items.flatMap(normalize))
-    .catch(() => [])
+  const items = (await listAll(KINDS)).flatMap(normalize)
   cache = { at: Date.now(), items }
   return items
 }

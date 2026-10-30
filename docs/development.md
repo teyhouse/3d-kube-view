@@ -20,11 +20,13 @@ npm run screenshot -- http://127.0.0.1:8080/
 
 Images land in `screenshots/`. README images live in `assets/`.
 
+`setup-browser.sh` assumes Ubuntu or Debian on x86_64, because it fetches missing libraries with `apt-get download`.
+
 Headless rendering is software only, at a few frames per second. Time is capped per frame, so the scene plays in slow motion and parcel counts and rates read high. Use a real browser and the panel at the bottom right for performance numbers.
 
 ## Testing without the cluster
 
-Some behavior needs events the cluster rarely produces. A small SSE server that serves `dist/` and sends scripted `config`, `topology`, `status`, `flows` and `process` events covers pod lifecycle, drops, HTTP, alerts and multiple nodes. The event shapes are defined by `server/topology.js`, `server/hubble.js` and `server/tetragon.js`.
+`./start.sh demo` serves a simulated cluster from `server/demo.js`, which also covers behavior a real cluster rarely shows: multiple nodes, policy drops, HTTP errors, alerts, pod rollouts and restarts. `DEMO=1 ./start.sh dev` gives the same data with hot reload. When an event shape changes in `server/topology.js`, `server/hubble.js` or `server/tetragon.js`, update the demo too.
 
 ## Checks after touching streams
 

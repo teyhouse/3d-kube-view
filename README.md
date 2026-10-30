@@ -10,6 +10,49 @@ This app is meant to run locally on your workstation, not in the cluster.
 
 The low fps in these screenshots come from headless Chrome, which renders in software. In a normal browser the app is optimized to hold stable frame rates.
 
+## Try it without a cluster
+
+```bash
+./start.sh demo
+```
+
+Opens a simulated cluster on http://127.0.0.1:8080. It only needs Node.js and does not use `kubectl`.
+
+## Requirements
+
+- Node.js `^20.19` or `>=22.12`
+- `kubectl` with a working context
+- Cilium with Hubble enabled, Tetragon (optional, process events)
+
+### Permissions
+
+Your `kubectl` context needs:
+
+- `get` and `list` across all namespaces on namespaces, pods, services, deployments, statefulsets, daemonsets, replicasets, jobs and nodes
+- `create` on `pods/exec` in the namespaces of the Cilium and Tetragon agents (`kube-system` by default), which is powerful access to those pods
+- Optional, skipped if missing or not allowed: `get` and `list` on network policies, Cilium policies, Ingress, HTTPRoute and Flux Kustomizations and HelmReleases
+
+All data comes from `kubectl`: `get` for topology, `exec` into the Cilium agents for `hubble observe` and into the Tetragon pods for `tetra getevents`. Nothing is installed into the cluster. While the app runs, one `hubble observe` and one `tetra getevents` run per agent pod, and they end when the app stops.
+
+## Run
+
+```bash
+./start.sh                                   # build and serve on http://127.0.0.1:8080
+./start.sh dev                               # Vite with hot reload on http://127.0.0.1:5173
+./start.sh demo                              # simulated cluster, no kubectl needed
+NAMESPACES=auth,whoami ./start.sh            # optional allowlist, default is all namespaces
+KUBE_CONTEXT=my-ctx PORT=9000 ./start.sh
+```
+
+Agents in other places:
+
+| Variable | Default |
+| --- | --- |
+| `CILIUM_NAMESPACE` | `kube-system` |
+| `CILIUM_SELECTOR` | `k8s-app=cilium` |
+| `TETRAGON_NAMESPACE` | `kube-system` |
+| `TETRAGON_SELECTOR` | `app.kubernetes.io/name=tetragon` |
+
 ## How it maps
 
 | Cluster | Scene |
@@ -28,23 +71,6 @@ The low fps in these screenshots come from headless Chrome, which renders in sof
 | DNS, HTTP, drop reason | Floating tags |
 
 Parcel colors: TCP lime, UDP blue, HTTP pink, DNS blue, ICMP peach, dropped red (falls off the belt). Click a legend entry to hide that traffic, including replies. Belts and tubes warm up with throughput. The panel at the bottom right shows fps, frame time, CPU and GPU time, draw calls and triangles.
-
-## Requirements
-
-- Node.js 20+
-- `kubectl` with a working context
-- Cilium with Hubble enabled, Tetragon (optional, process events)
-
-All data comes from `kubectl`: `get` for topology, `exec` into the Cilium agents for `hubble observe` and into the Tetragon pods for `tetra getevents`. Nothing is installed into the cluster. While the app runs, one `hubble observe` and one `tetra getevents` run per agent pod, and they end when the app stops.
-
-## Run
-
-```bash
-./start.sh                                   # build and serve on http://127.0.0.1:8080
-./start.sh dev                               # Vite with hot reload on http://127.0.0.1:5173
-NAMESPACES=auth,whoami ./start.sh            # optional allowlist, default is all namespaces
-KUBE_CONTEXT=my-ctx PORT=9000 ./start.sh
-```
 
 ## Controls
 

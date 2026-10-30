@@ -39,5 +39,5 @@ const serveStatic = async (req, res) => {
 }
 
 http.createServer((req, res) => api(req, res, () => serveStatic(req, res))).listen(config.port, '127.0.0.1', () => {
-  console.log(`3d-kube-view on http://127.0.0.1:${config.port} watching ${config.namespaces.join(', ') || 'all namespaces'}`)
+  console.log(`3d-kube-view on http://127.0.0.1:${config.port} ${config.demo ? 'showing a simulated demo cluster' : `watching ${config.namespaces.join(', ') || 'all namespaces'}`}`)
 })

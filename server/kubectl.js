@@ -9,8 +9,8 @@ const baseArgs = () => (config.context ? ['--context', config.context] : [])
 
 process.on('exit', () => children.forEach(child => child.kill()))
 
-export function execStream(pod, container, command) {
-  return ['exec', '-i', '-n', 'kube-system', pod, '-c', container, '--', 'sh', '-c', REMOTE_WATCHDOG, 'stream', ...command]
+export function execStream(namespace, pod, container, command) {
+  return ['exec', '-i', '-n', namespace, pod, '-c', container, '--', 'sh', '-c', REMOTE_WATCHDOG, 'stream', ...command]
 }
 
 export function run(args) {
@@ -23,6 +23,17 @@ export function run(args) {
     child.on('error', reject)
     child.on('close', code => (code === 0 ? resolve(out) : reject(new Error(err.trim() || `kubectl exited with ${code}`))))
   })
+}
+
+export async function listAll(kinds) {
+  const results = await Promise.all(
+    kinds.map(kind =>
+      run(['get', kind, '-A', '-o', 'json'])
+        .then(raw => JSON.parse(raw).items)
+        .catch(() => [])
+    )
+  )
+  return results.flat()
 }
 
 export async function listPods(namespace, selector) {

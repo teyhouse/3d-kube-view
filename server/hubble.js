@@ -32,7 +32,7 @@ export function startHubble(namespaces, { onFlows, onStatus, replay = 0 }) {
 
   ;(async () => {
     try {
-      const pods = await listPods('kube-system', 'k8s-app=cilium')
+      const pods = await listPods(config.ciliumNamespace, config.ciliumSelector)
       if (stopped) return
       if (!pods.length) return onStatus('error', 'no cilium agent pods found')
       onStatus('pending', `connecting to ${pods.length} agent(s)`)
@@ -40,7 +40,7 @@ export function startHubble(namespaces, { onFlows, onStatus, replay = 0 }) {
       if (replay) filters.push('--last', String(replay))
       for (const pod of pods) {
         stops.push(
-          supervise(execStream(pod, 'cilium-agent', ['hubble', 'observe', '--follow', '-o', 'json', ...filters]), {
+          supervise(execStream(config.ciliumNamespace, pod, 'cilium-agent', ['hubble', 'observe', '--follow', '-o', 'json', ...filters]), {
             onLine: ingest,
             onStart: () => onStatus('ok', `${pods.length} agent(s)`),
             onError: message => onStatus('error', message)
@@ -61,16 +61,12 @@ export function startHubble(namespaces, { onFlows, onStatus, replay = 0 }) {
 
 function summarize(flow) {
   const reply = flow.is_reply === true
-  let src = endpoint(flow.source)
-  let dst = endpoint(flow.destination)
+  const src = endpoint(flow.source)
+  const dst = endpoint(flow.destination)
   const l4 = flow.l4 ?? {}
   const proto = Object.keys(l4)[0] ?? 'other'
   const ports = l4[proto] ?? {}
-  let port = ports.destination_port ?? null
-  if (reply) {
-    ;[src, dst] = [dst, src]
-    port = ports.source_port ?? null
-  }
+  const port = (reply ? ports.source_port : ports.destination_port) ?? null
   const l7 = flow.l7?.http ? 'http' : flow.l7?.dns ? 'dns' : null
   const detail = l7Detail(flow.l7)
   return {
