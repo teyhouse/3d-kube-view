@@ -39,7 +39,11 @@ Streams start with the first browser tab and stop 15 seconds after the last one 
 | `scene/` | `ClusterWorld` (layout, transitions, zoom levels, endpoint lookup), `NodeYard` |
 | `traffic/` | `TrafficSystem` (routes, tubes, history, heat, tags), `RoutePath`, `PackageSystem`, `ProcessFx`, `AlertSystem`, `FloatingTags` |
 | `data/` | `EventStream`, `Selection`, `Views`, `Timeline`, `FlowFilter` |
-| `ui/` | `Hud`, `NamespacePanel`, `AlertFeed`, `TimelineBar`, `PerfMeter` |
+| `ui/` | `Hud`, `NamespacePanel`, `AlertFeed`, `TimelineBar`, `PerfMeter`, `LoadingScreen` |
+
+## Startup
+
+`LoadingScreen` covers the scene until the backend is connected, the topology has arrived and the first flows came in. It continues after 8 seconds without traffic for quiet clusters, right after the topology when no namespace is visible, and shows backend and `kubectl` errors while waiting.
 
 ## How a flow becomes a parcel
 

@@ -21,6 +21,7 @@ import { NamespacePanel } from './ui/NamespacePanel.js'
 import { AlertFeed } from './ui/AlertFeed.js'
 import { PerfMeter } from './ui/PerfMeter.js'
 import { TimelineBar } from './ui/TimelineBar.js'
+import { LoadingScreen } from './ui/LoadingScreen.js'
 import { Selection } from './data/Selection.js'
 import { Views } from './data/Views.js'
 import { Timeline } from './data/Timeline.js'
@@ -37,7 +38,7 @@ const SELECTION_DELAY_MS = 250
 const OVERVIEW_TIGHTNESS = 1.05
 const DISTRICT_FRAME_TOP = 10
 
-function boot() {
+function boot(loading) {
   const stage = new Stage(document.getElementById('scene'))
   const rig = new CameraRig(stage.camera, stage.renderer.domElement)
   const lights = new LightPool(stage.scene)
@@ -284,22 +285,36 @@ function boot() {
         publishSelection()
         hud.log('info', 'watching', cfg.namespaces === 'all' ? 'all namespaces' : cfg.namespaces.join(', '))
       },
-      status: s => hud.setStatus(s.source, s.state, s.message),
+      status: s => {
+        hud.setStatus(s.source, s.state, s.message)
+        loading.status(s)
+      },
       topology: next => {
         const first = !topology
         topology = next
         render()
         if (first) {
           const pods = next.namespaces.reduce((n, ns) => n + ns.pods.length, 0)
-          hud.log('info', 'topology', `${next.namespaces.length} namespaces, ${pods} pods`)
+          const summary = `${next.namespaces.length} namespaces, ${pods} pods`
+          hud.log('info', 'topology', summary)
+          loading.topologyLoaded(summary, world.order.length > 0)
         }
       },
-      flows: flows => timeline.push('flows', flows),
+      flows: flows => {
+        timeline.push('flows', flows)
+        loading.trafficArrived()
+      },
       process: events => timeline.push('process', events)
     },
     {
-      onOpen: () => hud.setStatus('stream', 'ok'),
-      onClose: () => hud.setStatus('stream', 'error', 'reconnecting')
+      onOpen: () => {
+        hud.setStatus('stream', 'ok')
+        loading.connected()
+      },
+      onClose: () => {
+        hud.setStatus('stream', 'error', 'reconnecting')
+        loading.disconnected()
+      }
     }
   )
 
@@ -340,4 +355,5 @@ function boot() {
   stage.start()
 }
 
-loadFonts().then(boot)
+const loading = new LoadingScreen(document.body)
+loadFonts().then(() => boot(loading))

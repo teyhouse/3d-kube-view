@@ -806,3 +806,123 @@ body {
   height: 34px;
   margin: 4px 0;
 }
+
+.loading {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  opacity: 1;
+  transition: opacity 0.5s ease;
+}
+
+.loading.leaving {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-card {
+  width: 340px;
+  padding: 24px 28px;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(10, 4, 30, 0.35);
+}
+
+.loading-belt {
+  position: relative;
+  height: 30px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  border-bottom: 6px solid #ee6b5f;
+  border-radius: 4px;
+}
+
+.loading-belt i {
+  position: absolute;
+  bottom: 2px;
+  left: -30px;
+  width: 24px;
+  height: 18px;
+  border-radius: 5px;
+  background: #c6e86e;
+  animation: loading-parcel 2.1s linear infinite;
+}
+
+.loading-belt i:nth-child(2) {
+  background: #aedaf6;
+  animation-delay: -0.7s;
+}
+
+.loading-belt i:nth-child(3) {
+  background: #f6bbe6;
+  animation-delay: -1.4s;
+}
+
+@keyframes loading-parcel {
+  to {
+    left: 100%;
+  }
+}
+
+.loading-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.loading-steps li {
+  position: relative;
+  padding: 4px 0 4px 22px;
+  opacity: 0.5;
+}
+
+.loading-steps li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.loading-steps li[data-state='active'] {
+  color: var(--text);
+  opacity: 1;
+}
+
+.loading-steps li[data-state='active']::before {
+  background: var(--warn);
+  animation: loading-pulse 1s ease-in-out infinite;
+}
+
+.loading-steps li[data-state='done'] {
+  color: var(--text);
+  opacity: 1;
+}
+
+.loading-steps li[data-state='done']::before {
+  background: var(--ok);
+}
+
+@keyframes loading-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.loading-error {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--error);
+  word-break: break-word;
+}
